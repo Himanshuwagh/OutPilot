@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+credentials.json
+
+# Browser automation data
+browser_data/
+
+# Notion diagnostics
+diagnose*.py
+
+# Playwright
+playwright-report/
+
+# Quota tracking
+browser_data/quotas/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node / Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# Package lock at root (convenience only)
+package-lock.json

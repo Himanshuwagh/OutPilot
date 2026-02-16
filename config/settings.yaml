@@ -1,0 +1,51 @@
+scraping:
+  lookback_hours: 24
+  headless: true
+  require_authenticated_sessions: true
+  x:
+    max_tweets_per_session: 50
+    scroll_delay_min: 2
+    scroll_delay_max: 5
+    max_scrolls: 15
+    browser_data_dir: "./browser_data/x"
+  linkedin:
+    max_posts_per_session: 40
+    scroll_delay_min: 3
+    scroll_delay_max: 8
+    max_scrolls: 10
+    daily_action_quota: 80
+    browser_data_dir: "./browser_data/linkedin"
+  news:
+    techcrunch_url: "https://techcrunch.com/category/artificial-intelligence/"
+    google_news_rss: "https://news.google.com/rss/search?q=AI+startup+funding+hiring&hl=en-US&gl=US&ceid=US:en"
+
+processing:
+  dedup_window_days: 7
+  candidate_preferences:
+    junior_only: true
+    max_years_experience: 3
+    exclude_senior_titles: true
+    exclude_us_only_jobs: true
+    allow_remote_roles: true
+    allow_non_us_roles: true
+
+research:
+  contacts_per_company: 5
+  max_leads_for_contact_search: 20
+  email_smtp_delay: 2
+  common_tlds:
+    - ".com"
+    - ".io"
+    - ".ai"
+    - ".co"
+    - ".tech"
+
+outreach:
+  max_emails_per_day: 20
+  send_delay_min: 30
+  send_delay_max: 60
+  groq_model: "llama-3.3-70b-versatile"
+
+scheduling:
+  daily_run_hour: 6
+  daily_run_minute: 0

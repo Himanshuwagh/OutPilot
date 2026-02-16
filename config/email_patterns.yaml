@@ -1,0 +1,13 @@
+patterns:
+  - "{first}.{last}@{domain}"
+  - "{first}@{domain}"
+  - "{first}{last}@{domain}"
+  - "{f}{last}@{domain}"
+  - "{first}{l}@{domain}"
+  - "{first}_{last}@{domain}"
+  - "{last}.{first}@{domain}"
+  - "{last}{first}@{domain}"
+  - "{f}.{last}@{domain}"
+  - "{first}-{last}@{domain}"
+  - "{last}@{domain}"
+  - "{first}.{l}@{domain}"
