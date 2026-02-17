@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const LINKS = [
   { label: "Features", href: "#features" },
@@ -10,12 +10,24 @@ const LINKS = [
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 20);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 bg-white/80 backdrop-blur-xl">
+    <header
+      className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 ${
+        scrolled
+          ? "bg-white/90 shadow-sm shadow-foreground/[0.03] backdrop-blur-xl"
+          : "bg-transparent"
+      }`}
+    >
       <div className="mx-auto flex h-[56px] max-w-[1000px] items-center justify-between px-6">
         <a href="#" className="flex items-center gap-2.5">
-          {/* Logo mark */}
           <div className="relative flex h-7 w-7 items-center justify-center overflow-hidden rounded-lg bg-accent">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M5 12h14M12 5l7 7-7 7" />
