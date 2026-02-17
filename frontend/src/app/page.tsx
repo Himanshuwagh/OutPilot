@@ -19,17 +19,19 @@ export default function Home() {
         <FadeIn>
           <Features />
         </FadeIn>
-        <FadeIn>
+        <FadeIn delay={0.05}>
           <HowItWorks />
         </FadeIn>
-        <FadeIn>
+        <FadeIn delay={0.05}>
           <GetStarted />
         </FadeIn>
-        <FadeIn>
+        <FadeIn delay={0.05}>
           <FAQ />
         </FadeIn>
       </main>
-      <Footer />
+      <FadeIn>
+        <Footer />
+      </FadeIn>
       <ScrollToTop />
     </>
   );

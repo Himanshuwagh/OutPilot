@@ -1,3 +1,82 @@
+"use client";
+
+import { motion, useInView } from "framer-motion";
+import { useRef, useState, useEffect } from "react";
+
+const LINES = [
+  { prompt: true, text: "git clone <repo> && cd outpilot" },
+  { prompt: true, text: "pip install -r requirements.txt" },
+  { prompt: true, text: "cp .env.example .env" },
+  { prompt: true, text: "python setup_sessions.py", comment: "# one-time login" },
+  { prompt: true, text: "python demo.py", comment: "# test run" },
+];
+
+const CONFIG = [
+  { title: ".env", items: ["Notion API key", "Groq key (free)", "Gmail app password"] },
+  { title: "settings.yaml", items: ["Role preferences", "Location filters", "Daily limits"] },
+  { title: "Service", items: ["Run install script", "Daily via launchd", "Zero maintenance"] },
+];
+
+function TypingTerminal() {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-60px" });
+  const [visibleLines, setVisibleLines] = useState(0);
+
+  useEffect(() => {
+    if (!inView) return;
+    let line = 0;
+    const interval = setInterval(() => {
+      line++;
+      setVisibleLines(line);
+      if (line >= LINES.length) clearInterval(interval);
+    }, 450);
+    return () => clearInterval(interval);
+  }, [inView]);
+
+  return (
+    <div ref={ref} className="mt-14 overflow-hidden rounded-2xl bg-[#0c1222] shadow-2xl shadow-foreground/10 ring-1 ring-white/[0.05]">
+      <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3.5">
+        <span className="h-3 w-3 rounded-full bg-white/10" />
+        <span className="h-3 w-3 rounded-full bg-white/10" />
+        <span className="h-3 w-3 rounded-full bg-white/10" />
+        <span className="ml-3 text-[11px] font-medium text-white/20">terminal</span>
+      </div>
+      <div className="space-y-0.5 px-5 py-5 font-mono text-[13px] leading-7">
+        {LINES.map((l, i) => (
+          <motion.p
+            key={i}
+            initial={{ opacity: 0, x: -8 }}
+            animate={i < visibleLines ? { opacity: 1, x: 0 } : {}}
+            transition={{ duration: 0.3 }}
+            className="text-white/60"
+          >
+            {l.prompt && <span className="text-accent">~</span>}{" "}
+            {l.text}
+            {l.comment && <span className="text-white/20"> {l.comment}</span>}
+          </motion.p>
+        ))}
+        {visibleLines >= LINES.length && (
+          <motion.span
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0, 1, 0] }}
+            transition={{ duration: 1, repeat: Infinity }}
+            className="inline-block h-4 w-2 translate-y-0.5 bg-accent"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+const configCard = {
+  hidden: { opacity: 0, y: 16 },
+  show: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: i * 0.12, duration: 0.45, ease: [0.22, 1, 0.36, 1] as const },
+  }),
+};
+
 export default function GetStarted() {
   return (
     <section id="get-started" className="bg-surface py-24 md:py-32">
@@ -11,31 +90,20 @@ export default function GetStarted() {
           </h2>
         </div>
 
-        {/* Terminal */}
-        <div className="mt-14 overflow-hidden rounded-2xl bg-[#0c1222] shadow-2xl shadow-foreground/10 ring-1 ring-white/[0.05]">
-          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3.5">
-            <span className="h-3 w-3 rounded-full bg-white/10" />
-            <span className="h-3 w-3 rounded-full bg-white/10" />
-            <span className="h-3 w-3 rounded-full bg-white/10" />
-            <span className="ml-3 text-[11px] font-medium text-white/20">terminal</span>
-          </div>
-          <div className="space-y-0.5 px-5 py-5 font-mono text-[13px] leading-7">
-            <p className="text-white/60"><span className="text-accent">~</span> git clone &lt;repo&gt; &amp;&amp; cd outpilot</p>
-            <p className="text-white/60"><span className="text-accent">~</span> pip install -r requirements.txt</p>
-            <p className="text-white/60"><span className="text-accent">~</span> cp .env.example .env</p>
-            <p className="text-white/60"><span className="text-accent">~</span> python setup_sessions.py <span className="text-white/20"># one-time login</span></p>
-            <p className="text-white/60"><span className="text-accent">~</span> python demo.py <span className="text-white/20"># test run</span></p>
-          </div>
-        </div>
+        <TypingTerminal />
 
-        {/* Config */}
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
-          {[
-            { title: ".env", items: ["Notion API key", "Groq key (free)", "Gmail app password"] },
-            { title: "settings.yaml", items: ["Role preferences", "Location filters", "Daily limits"] },
-            { title: "Service", items: ["Run install script", "Daily via launchd", "Zero maintenance"] },
-          ].map((c) => (
-            <div key={c.title} className="rounded-xl border border-border bg-white p-5">
+          {CONFIG.map((c, i) => (
+            <motion.div
+              key={c.title}
+              custom={i}
+              variants={configCard}
+              initial="hidden"
+              whileInView="show"
+              viewport={{ once: true }}
+              whileHover={{ y: -4, transition: { duration: 0.2 } }}
+              className="rounded-xl border border-border bg-white p-5"
+            >
               <h3 className="text-sm font-semibold text-foreground">{c.title}</h3>
               <ul className="mt-3 space-y-2.5">
                 {c.items.map((item) => (
@@ -49,7 +117,7 @@ export default function GetStarted() {
                   </li>
                 ))}
               </ul>
-            </div>
+            </motion.div>
           ))}
         </div>
       </div>

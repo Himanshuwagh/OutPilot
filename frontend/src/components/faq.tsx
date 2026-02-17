@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 
 const QA = [
   { q: "Is it really free?", a: "Yes — Groq free tier, Gmail SMTP, Playwright, and Notion. Zero paid APIs." },
@@ -27,27 +28,43 @@ export default function FAQ() {
           {QA.map((item, i) => {
             const isOpen = openIdx === i;
             return (
-              <div key={i} className={i > 0 ? "border-t border-border" : ""}>
+              <motion.div
+                key={i}
+                initial={false}
+                className={i > 0 ? "border-t border-border" : ""}
+              >
                 <button
                   onClick={() => setOpenIdx(isOpen ? null : i)}
                   className="flex w-full items-center justify-between px-6 py-[18px] text-left transition-colors hover:bg-surface/50"
                 >
                   <span className="text-[14px] font-semibold text-foreground">{item.q}</span>
-                  <div className={`ml-4 flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-all ${isOpen ? "bg-accent text-white rotate-45" : "bg-surface text-subtle"}`}>
+                  <motion.div
+                    animate={{ rotate: isOpen ? 45 : 0 }}
+                    transition={{ duration: 0.2 }}
+                    className={`ml-4 flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors ${isOpen ? "bg-accent text-white" : "bg-surface text-subtle"}`}
+                  >
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                       <line x1="6" y1="1" x2="6" y2="11" />
                       <line x1="1" y1="6" x2="11" y2="6" />
                     </svg>
-                  </div>
+                  </motion.div>
                 </button>
-                <div className={`grid transition-all duration-200 ease-in-out ${isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
-                  <div className="overflow-hidden">
-                    <p className="px-6 pb-5 text-[13px] leading-relaxed text-muted">
-                      {item.a}
-                    </p>
-                  </div>
-                </div>
-              </div>
+                <AnimatePresence initial={false}>
+                  {isOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] as const }}
+                      className="overflow-hidden"
+                    >
+                      <p className="px-6 pb-5 text-[13px] leading-relaxed text-muted">
+                        {item.a}
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
             );
           })}
         </div>

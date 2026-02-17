@@ -1,3 +1,7 @@
+"use client";
+
+import { motion } from "framer-motion";
+
 const ITEMS = [
   {
     icon: (
@@ -78,6 +82,19 @@ const ITEMS = [
   },
 ];
 
+const cardVariant = {
+  hidden: { opacity: 0, y: 24 },
+  show: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      delay: i * 0.08,
+      duration: 0.5,
+      ease: [0.22, 1, 0.36, 1] as const,
+    },
+  }),
+};
+
 export default function Features() {
   return (
     <section id="features" className="bg-surface py-24 md:py-32">
@@ -92,17 +109,26 @@ export default function Features() {
         </div>
 
         <div className="mt-16 grid gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
-          {ITEMS.map((f) => (
-            <div
+          {ITEMS.map((f, i) => (
+            <motion.div
               key={f.title}
+              custom={i}
+              variants={cardVariant}
+              initial="hidden"
+              whileInView="show"
+              viewport={{ once: true, margin: "-40px" }}
+              whileHover={{ y: -4, transition: { duration: 0.2 } }}
               className="group relative bg-white p-6 transition-colors hover:bg-accent-light/50"
             >
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-surface text-subtle transition-colors group-hover:bg-accent/10 group-hover:text-accent">
+              <motion.div
+                className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-surface text-subtle transition-colors group-hover:bg-accent/10 group-hover:text-accent"
+                whileHover={{ rotate: [0, -8, 8, 0], transition: { duration: 0.4 } }}
+              >
                 {f.icon}
-              </div>
+              </motion.div>
               <h3 className="text-[14px] font-semibold leading-snug text-foreground">{f.title}</h3>
               <p className="mt-1.5 text-[13px] leading-relaxed text-muted">{f.desc}</p>
-            </div>
+            </motion.div>
           ))}
         </div>
       </div>

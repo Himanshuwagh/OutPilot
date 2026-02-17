@@ -1,3 +1,7 @@
+"use client";
+
+import { motion } from "framer-motion";
+
 const STEPS = [
   {
     n: "01",
@@ -43,6 +47,28 @@ const STEPS = [
   },
 ];
 
+const cardVariant = {
+  hidden: { opacity: 0, y: 28, scale: 0.95 },
+  show: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: {
+      delay: i * 0.15,
+      duration: 0.55,
+      ease: [0.22, 1, 0.36, 1] as const,
+    },
+  }),
+};
+
+const lineGrow = {
+  hidden: { scaleX: 0 },
+  show: (i: number) => ({
+    scaleX: 1,
+    transition: { delay: i * 0.15 + 0.25, duration: 0.5, ease: "easeOut" as const },
+  }),
+};
+
 export default function HowItWorks() {
   return (
     <section id="how-it-works" className="py-24 md:py-32">
@@ -57,19 +83,47 @@ export default function HowItWorks() {
         </div>
 
         <div className="mt-16 grid gap-5 sm:grid-cols-2 md:grid-cols-4">
-          {STEPS.map((s) => (
-            <div
-              key={s.n}
-              className="group relative rounded-2xl border border-border bg-white p-6 transition-all hover:border-accent/20 hover:shadow-lg hover:shadow-accent/5"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-light text-accent">
-                  {s.icon}
+          {STEPS.map((s, i) => (
+            <div key={s.n} className="relative">
+              {/* Animated connector line between cards */}
+              {i < STEPS.length - 1 && (
+                <motion.div
+                  custom={i}
+                  variants={lineGrow}
+                  initial="hidden"
+                  whileInView="show"
+                  viewport={{ once: true }}
+                  className="absolute right-0 top-8 z-10 hidden h-px w-5 origin-left bg-accent/30 translate-x-full md:block"
+                />
+              )}
+
+              <motion.div
+                custom={i}
+                variants={cardVariant}
+                initial="hidden"
+                whileInView="show"
+                viewport={{ once: true, margin: "-40px" }}
+                whileHover={{
+                  y: -6,
+                  boxShadow: "0 12px 32px -8px rgba(20,184,166,0.12)",
+                  borderColor: "rgba(20,184,166,0.25)",
+                  transition: { duration: 0.25 },
+                }}
+                className="group relative rounded-2xl border border-border bg-white p-6"
+              >
+                <div className="flex items-center justify-between">
+                  <motion.div
+                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-light text-accent"
+                    whileHover={{ scale: 1.1, rotate: 6 }}
+                    transition={{ type: "spring", stiffness: 300 }}
+                  >
+                    {s.icon}
+                  </motion.div>
+                  <span className="text-[11px] font-bold tracking-widest text-subtle">{s.n}</span>
                 </div>
-                <span className="text-[11px] font-bold tracking-widest text-subtle">{s.n}</span>
-              </div>
-              <h3 className="mt-5 text-base font-semibold text-foreground">{s.title}</h3>
-              <p className="mt-2 text-[13px] leading-relaxed text-muted">{s.desc}</p>
+                <h3 className="mt-5 text-base font-semibold text-foreground">{s.title}</h3>
+                <p className="mt-2 text-[13px] leading-relaxed text-muted">{s.desc}</p>
+              </motion.div>
             </div>
           ))}
         </div>
