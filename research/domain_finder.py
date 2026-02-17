@@ -3,14 +3,14 @@ Find a company's website domain from its name.
 
 Strategies (in priority order):
 1. Use domain_hint extracted from URLs in the original post (fastest, most accurate)
-2. Google search scrape
-3. DNS resolution for common TLDs
+2. DuckDuckGo Instant Answer API (more reliable than scraping Google)
+3. Google search scrape (may be blocked by CAPTCHA)
+4. DNS resolution for common TLDs (with multiple slug variations)
 """
 
 import re
 import logging
 from typing import Optional
-from urllib.parse import urlparse
 
 import dns.resolver
 import requests
@@ -27,6 +27,15 @@ HEADERS = {
     )
 }
 
+SKIP_DOMAINS = {
+    "google.com", "wikipedia.org", "linkedin.com", "facebook.com",
+    "twitter.com", "x.com", "crunchbase.com", "glassdoor.com",
+    "indeed.com", "youtube.com", "github.com", "bloomberg.com",
+    "techcrunch.com", "forbes.com", "reuters.com", "bing.com",
+    "duckduckgo.com", "reddit.com", "quora.com", "medium.com",
+    "apple.com", "amazon.com",
+}
+
 
 class DomainFinder:
     def __init__(self):
@@ -38,11 +47,7 @@ class DomainFinder:
     def find_domain(self, company_name: str, domain_hint: str = "") -> Optional[str]:
         """
         Return the primary domain for a company, or None.
-
-        Args:
-            company_name: Company name to search for.
-            domain_hint: An optional domain extracted from the post's URLs
-                         (e.g., "acme.ai"). If provided and valid, used first.
+        Tries multiple strategies in order of reliability.
         """
         key = company_name.strip().lower()
         if key in self._cache:
@@ -53,18 +58,29 @@ class DomainFinder:
         # Strategy 1: Use domain_hint from the post
         if domain_hint:
             domain = self._validate_domain_hint(domain_hint, company_name)
+            if domain:
+                logger.info("Domain for '%s' via hint: %s", company_name, domain)
 
-        # Strategy 2: Google search
+        # Strategy 2: DuckDuckGo (doesn't block like Google)
+        if not domain:
+            domain = self._duckduckgo_search(company_name)
+            if domain:
+                logger.info("Domain for '%s' via DuckDuckGo: %s", company_name, domain)
+
+        # Strategy 3: Google search
         if not domain:
             domain = self._google_search(company_name)
+            if domain:
+                logger.info("Domain for '%s' via Google: %s", company_name, domain)
 
-        # Strategy 3: DNS probe common TLDs
+        # Strategy 4: DNS probe common TLDs (with multiple slug variations)
         if not domain:
             domain = self._dns_probe(company_name)
+            if domain:
+                logger.info("Domain for '%s' via DNS probe: %s", company_name, domain)
 
         if domain:
             self._cache[key] = domain
-            logger.info("Domain for '%s': %s", company_name, domain)
         else:
             logger.warning("Could not find domain for '%s'", company_name)
 
@@ -75,24 +91,51 @@ class DomainFinder:
         hint = hint.lower().strip()
         hint = re.sub(r"^www\.", "", hint)
 
-        # Must resolve (has DNS records)
         try:
             dns.resolver.resolve(hint, "A")
         except Exception:
             return None
 
-        # Optional: check it loosely relates to the company name
         slug = re.sub(r"[^a-z0-9]", "", company_name.lower())
         domain_slug = re.sub(r"[^a-z0-9]", "", hint.split(".")[0])
 
-        # If the domain name contains part of the company name, great
         if len(slug) >= 3 and (domain_slug in slug or slug in domain_slug):
             return hint
 
-        # Even if names don't match, if it's from the post it's likely right
-        # (e.g., the post has a careers link to a domain different from the company name)
-        logger.debug("Domain hint %s doesn't match company '%s', but accepting anyway", hint, company_name)
+        logger.debug(
+            "Domain hint %s doesn't match company '%s', but accepting anyway",
+            hint, company_name,
+        )
         return hint
+
+    def _duckduckgo_search(self, company_name: str) -> Optional[str]:
+        """Use DuckDuckGo HTML search to find the company's website."""
+        query = f"{company_name} official website"
+        url = f"https://html.duckduckgo.com/html/?q={requests.utils.requote_uri(query)}"
+
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=10)
+            resp.raise_for_status()
+        except Exception as exc:
+            logger.debug("DuckDuckGo search failed: %s", exc)
+            return None
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        for a_tag in soup.select("a.result__a[href]"):
+            href = a_tag.get("href", "")
+            domain = self._extract_domain_from_url(href)
+            if domain and not self._is_skip_domain(domain):
+                return domain
+
+        # Also try result snippets for URLs
+        for a_tag in soup.select("a[href]"):
+            href = a_tag.get("href", "")
+            domain = self._extract_domain_from_url(href)
+            if domain and not self._is_skip_domain(domain):
+                return domain
+
+        return None
 
     def _google_search(self, company_name: str) -> Optional[str]:
         """Scrape Google search for the company's official website."""
@@ -108,35 +151,64 @@ class DomainFinder:
 
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        skip_domains = {
-            "google.com", "wikipedia.org", "linkedin.com", "facebook.com",
-            "twitter.com", "x.com", "crunchbase.com", "glassdoor.com",
-            "indeed.com", "youtube.com", "github.com",
-        }
-
         for a_tag in soup.select("a[href]"):
             href = a_tag["href"]
-            match = re.search(r"https?://([^/&]+)", href)
-            if not match:
-                continue
-            domain = match.group(1).lower()
-            domain = re.sub(r"^www\.", "", domain)
-
-            if any(skip in domain for skip in skip_domains):
-                continue
-            if "." in domain:
+            domain = self._extract_domain_from_url(href)
+            if domain and not self._is_skip_domain(domain):
                 return domain
 
         return None
 
     def _dns_probe(self, company_name: str) -> Optional[str]:
-        """Try common TLDs to see if the domain resolves."""
-        slug = re.sub(r"[^a-z0-9]", "", company_name.lower())
-        for tld in self.tlds:
-            candidate = f"{slug}{tld}"
-            try:
-                dns.resolver.resolve(candidate, "A")
-                return candidate
-            except Exception:
+        """
+        Try common TLDs with multiple slug variations to handle multi-word names.
+
+        E.g. "Scale AI" -> tries: scaleai.com, scale.com, scale.ai, scale-ai.com, etc.
+        """
+        name = company_name.lower().strip()
+        words = re.findall(r"[a-z0-9]+", name)
+        if not words:
+            return None
+
+        # Build slug variations
+        slugs = set()
+        # All words joined: "scaleai"
+        slugs.add("".join(words))
+        # First word only: "scale"
+        slugs.add(words[0])
+        # Hyphenated: "scale-ai"
+        if len(words) > 1:
+            slugs.add("-".join(words))
+        # First two words: "openai"
+        if len(words) >= 2:
+            slugs.add(words[0] + words[1])
+
+        for slug in slugs:
+            if not slug or len(slug) < 2:
                 continue
+            for tld in self.tlds:
+                candidate = f"{slug}{tld}"
+                try:
+                    dns.resolver.resolve(candidate, "A")
+                    return candidate
+                except Exception:
+                    continue
+
         return None
+
+    @staticmethod
+    def _extract_domain_from_url(url_or_href: str) -> Optional[str]:
+        """Extract a clean domain from a URL string."""
+        match = re.search(r"https?://([^/&?#]+)", url_or_href)
+        if not match:
+            return None
+        domain = match.group(1).lower()
+        domain = re.sub(r"^www\.", "", domain)
+        if "." in domain:
+            return domain
+        return None
+
+    @staticmethod
+    def _is_skip_domain(domain: str) -> bool:
+        """Check if domain is a known non-company site."""
+        return any(skip in domain for skip in SKIP_DOMAINS)

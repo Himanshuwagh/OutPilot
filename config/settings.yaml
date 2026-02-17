@@ -33,12 +33,21 @@ research:
   contacts_per_company: 5
   max_leads_for_contact_search: 20
   email_smtp_delay: 2
+  # Accuracy-first finder controls.
+  accurate_email_daily_limit: 20
+  accurate_web_queries_per_contact: 4
+  # SMTP verification on port 25 is blocked by most ISPs/cloud providers.
+  # Set to false to skip SMTP checks and always use pattern guessing.
+  smtp_verify_enabled: false
   common_tlds:
     - ".com"
     - ".io"
     - ".ai"
     - ".co"
     - ".tech"
+    - ".dev"
+    - ".org"
+    - ".net"
 
 outreach:
   max_emails_per_day: 20

@@ -1,10 +1,14 @@
 """
 CrewAI tool wrappers that bridge our modules into CrewAI's tool interface.
 Each tool is a simple callable that agents can invoke.
+
+Also contains the company-targeted outreach pipeline (run_company_outreach)
+which can be invoked directly from main.py / demo.py.
 """
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 from crewai.tools import tool
@@ -19,6 +23,7 @@ from storage.notion_client import NotionStorage
 from research.domain_finder import DomainFinder
 from research.contact_finder import ContactFinder
 from research.email_finder import EmailFinder
+from research.accurate_email_finder import AccurateEmailFinder
 from outreach.drafter import EmailDrafter
 from outreach.sender import EmailSender
 
@@ -221,7 +226,7 @@ def process_and_store_leads(posts: list[dict]) -> list[dict]:
 def research_contacts(leads: list[dict]) -> list[dict]:
     """For each lead, find company domain, LinkedIn contacts, guess+verify emails, store in Notion."""
     domain_finder = DomainFinder()
-    email_finder = EmailFinder()
+    email_finder = AccurateEmailFinder()
     notion = get_notion()
 
     rcfg = _settings["research"]
@@ -300,15 +305,33 @@ def research_contacts(leads: list[dict]) -> list[dict]:
             people = []
 
         for person in people:
-            name = person.get("name", "")
-            parts = name.split()
-            if len(parts) < 2:
+            name = person.get("name", "").strip()
+            if not name:
                 continue
-            first, last = parts[0], parts[-1]
+            parts = name.split()
+            if len(parts) >= 2:
+                first, last = parts[0], parts[-1]
+            elif len(parts) == 1:
+                first = last = parts[0]
+            else:
+                continue
+            first = re.sub(r"[^a-zA-Z]", "", first)
+            last = re.sub(r"[^a-zA-Z]", "", last)
+            if not first:
+                continue
 
-            # Find email (website scrape -> pattern+SMTP -> GitHub)
-            result = email_finder.find_email(first, last, domain)
+            # Find email via deep, evidence-based finder.
+            result = email_finder.find_best_email(
+                full_name=name,
+                company_domain=domain,
+                company_name=company,
+                linkedin_url=person.get("linkedin_url", ""),
+            )
             email = result.get("email", "")
+
+            # Fallback: always build a best-guess email
+            if not email and first and last:
+                email = f"{first.lower()}.{last.lower()}@{domain}"
 
             if not email:
                 continue
@@ -470,4 +493,349 @@ def send_emails(drafts: list[dict]) -> str:
 
     summary = f"Sent {sent} emails, {failed} failed, {sender.remaining_today()} remaining today."
     logger.info(summary)
+    return summary
+
+
+# ------------------------------------------------------------------
+# Company-targeted outreach pipeline
+# ------------------------------------------------------------------
+
+async def run_company_outreach(
+    company_name: str,
+    role: str = "",
+    domain_override: str = "",
+    dry_run: bool = False,
+    num_contacts: int = 5,
+) -> dict:
+    """
+    Full company-targeted pipeline:
+      1. Find company domain
+      2. Search LinkedIn People for hiring managers / managers
+      3. Find email addresses (website scrape -> pattern + SMTP -> GitHub)
+      4. Store contacts in Notion
+      5. Draft personalized cold emails via Groq LLM
+      6. Send emails via Gmail (unless dry_run=True)
+
+    Args:
+        company_name: Target company (e.g. "OpenAI").
+        role: Specific role to mention in emails (e.g. "ML Engineer").
+        domain_override: Skip domain auto-detection (e.g. "openai.com").
+        dry_run: If True, draft emails but don't send them.
+        num_contacts: How many contacts to find (default 5).
+
+    Returns a summary dict with counts and contact details.
+    """
+    li_cfg = _settings["scraping"]["linkedin"]
+
+    summary = {
+        "company": company_name,
+        "contacts_found": 0,
+        "emails_found": 0,
+        "emails_stored_notion": 0,
+        "drafts_created": 0,
+        "emails_sent": 0,
+        "emails_failed": 0,
+        "contacts": [],
+    }
+
+    # ---- Step 1: Find company domain ----
+    logger.info("=" * 60)
+    logger.info("STEP 1: Finding domain for %s", company_name)
+    logger.info("=" * 60)
+
+    domain_finder = DomainFinder()
+    domain = domain_override or domain_finder.find_domain(company_name)
+
+    if not domain:
+        logger.error(
+            "Could not find domain for '%s'. Provide it with --domain.",
+            company_name,
+        )
+        return summary
+
+    logger.info("Domain: %s", domain)
+
+    # ---- Step 2: Search LinkedIn People for managers ----
+    logger.info("=" * 60)
+    logger.info("STEP 2: Searching LinkedIn People for managers at %s", company_name)
+    logger.info("=" * 60)
+
+    contact_finder = ContactFinder(
+        browser_data_dir=li_cfg["browser_data_dir"],
+        headless=_headless,
+        contacts_per_company=num_contacts,
+        daily_quota=li_cfg["daily_action_quota"],
+    )
+
+    people: list[dict] = []
+    try:
+        await contact_finder.start()
+        await contact_finder.ensure_logged_in(
+            "https://www.linkedin.com/feed/", "feed"
+        )
+        people = await contact_finder.find_contacts(
+            company_name, search_mode="managers"
+        )
+    except Exception as exc:
+        logger.error("LinkedIn contact search failed: %s", exc)
+    finally:
+        try:
+            await contact_finder.stop()
+        except Exception:
+            pass
+
+    if not people:
+        logger.warning(
+            "No contacts found on LinkedIn for %s. "
+            "Possible causes:\n"
+            "  1. LinkedIn session expired — re-run: python setup_sessions.py --platform linkedin\n"
+            "  2. LinkedIn changed their page layout (CSS selectors outdated)\n"
+            "  3. Company name not matching any LinkedIn results\n"
+            "  4. Daily LinkedIn quota exhausted",
+            company_name,
+        )
+        return summary
+
+    summary["contacts_found"] = len(people)
+    logger.info("Found %d relevant people at %s", len(people), company_name)
+    for p in people:
+        logger.info("  - %s | %s | %s", p["name"], p["role_title"], p["linkedin_url"])
+
+    # ---- Step 3: Find email addresses ----
+    logger.info("=" * 60)
+    logger.info("STEP 3: Finding email addresses for %d contacts", len(people))
+    logger.info("=" * 60)
+
+    email_finder = AccurateEmailFinder()
+
+    contacts_with_emails: list[dict] = []
+    for person in people:
+        name = person.get("name", "").strip()
+        if not name:
+            continue
+
+        # Parse name: handle "First Last", "First Middle Last",
+        # "First", "Dr. First Last", etc.
+        parts = name.split()
+        if len(parts) >= 2:
+            first, last = parts[0], parts[-1]
+        elif len(parts) == 1:
+            # Single name — use it as both first and last
+            first = parts[0]
+            last = parts[0]
+        else:
+            continue
+
+        # Clean non-alpha chars (titles like "Dr.", "Jr.", "III")
+        first = re.sub(r"[^a-zA-Z]", "", first)
+        last = re.sub(r"[^a-zA-Z]", "", last)
+        if not first:
+            continue
+
+        result = email_finder.find_best_email(
+            full_name=name,
+            company_domain=domain,
+            company_name=company_name,
+            linkedin_url=person.get("linkedin_url", ""),
+        )
+        email = result.get("email", "")
+
+        # If EmailFinder returned empty (shouldn't happen), build a fallback
+        if not email and first and last:
+            email = f"{first.lower()}.{last.lower()}@{domain}"
+            result = {
+                "email": email,
+                "confidence": "low",
+                "all_candidates": [email],
+                "method": "pattern_guess",
+            }
+            logger.info("  Built fallback email: %s", email)
+
+        if email:
+            person["email"] = email
+            person["email_confidence"] = result.get("confidence", "low")
+            person["email_method"] = result.get("method", "")
+            contacts_with_emails.append(person)
+            logger.info(
+                "  [%s] %s -> %s (%s)",
+                result.get("confidence", "?"),
+                name,
+                email,
+                result.get("method", ""),
+            )
+        else:
+            logger.warning("  No email found for %s", name)
+
+    summary["emails_found"] = len(contacts_with_emails)
+
+    if not contacts_with_emails:
+        logger.warning("No emails found for any contacts at %s", company_name)
+        return summary
+
+    # ---- Step 4: Store contacts in Notion ----
+    logger.info("=" * 60)
+    logger.info("STEP 4: Storing %d contacts in Notion", len(contacts_with_emails))
+    logger.info("=" * 60)
+
+    notion = get_notion()
+    notion.ensure_schemas()
+
+    stored_contacts: list[dict] = []
+    for contact in contacts_with_emails:
+        email = contact.get("email", "")
+
+        if notion.contact_exists(email):
+            logger.info("  Contact %s already in Notion, skipping.", email)
+            continue
+
+        contact_data = {
+            "name": contact["name"],
+            "email": email,
+            "role_title": contact.get("role_title", ""),
+            "company_name": company_name,
+            "email_confidence": contact.get("email_confidence", "low"),
+            "linkedin_url": contact.get("linkedin_url", ""),
+        }
+
+        try:
+            page_id = notion.add_contact(contact_data)
+            contact["page_id"] = page_id
+            stored_contacts.append(contact)
+            logger.info("  Stored: %s (%s) -> %s", contact["name"], email, page_id)
+        except Exception as exc:
+            logger.error("  Failed to store %s: %s", contact["name"], exc)
+
+    summary["emails_stored_notion"] = len(stored_contacts)
+
+    if not stored_contacts:
+        logger.info("All contacts already in Notion or failed to store.")
+        stored_contacts = contacts_with_emails
+
+    # ---- Step 5: Draft personalized cold emails ----
+    logger.info("=" * 60)
+    logger.info("STEP 5: Drafting cold emails for %d contacts", len(stored_contacts))
+    logger.info("=" * 60)
+
+    drafter = EmailDrafter()
+    drafts: list[dict] = []
+
+    for contact in stored_contacts:
+        lead_info = {
+            "company_name": company_name,
+            "post_type": "hiring",
+            "role": role or "an AI/ML role",
+            "funding_amount": "",
+        }
+
+        result = drafter.draft(lead_info, contact)
+        if not result.get("body"):
+            logger.warning("  Empty draft for %s, skipping", contact["name"])
+            continue
+
+        outreach_data = {
+            "subject": result["subject"],
+            "contact_page_id": contact.get("page_id", ""),
+            "email_draft": result["body"],
+        }
+
+        try:
+            outreach_page_id = notion.add_outreach(outreach_data)
+            drafts.append({
+                "outreach_page_id": outreach_page_id,
+                "to_email": contact.get("email", ""),
+                "to_name": contact.get("name", ""),
+                "subject": result["subject"],
+                "body": result["body"],
+            })
+            logger.info(
+                "  Draft created for %s: %s", contact["name"], result["subject"]
+            )
+        except Exception as exc:
+            logger.error("  Failed to store draft for %s: %s", contact["name"], exc)
+
+    summary["drafts_created"] = len(drafts)
+
+    if not drafts:
+        logger.warning("No email drafts created.")
+        return summary
+
+    # ---- Step 6: Send emails (skip if dry_run) ----
+    if dry_run:
+        logger.info("=" * 60)
+        logger.info(
+            "DRY RUN - Emails NOT sent. %d drafts stored in Notion.", len(drafts)
+        )
+        logger.info("=" * 60)
+        for d in drafts:
+            logger.info("  Would send to: %s <%s>", d["to_name"], d["to_email"])
+            logger.info("  Subject: %s", d["subject"])
+    else:
+        logger.info("=" * 60)
+        logger.info("STEP 6: Sending %d emails", len(drafts))
+        logger.info("=" * 60)
+
+        sender = EmailSender()
+        sent = 0
+        failed = 0
+
+        for draft in drafts:
+            if not sender.can_send():
+                logger.warning(
+                    "Daily email limit reached. Remaining drafts queued in Notion."
+                )
+                break
+
+            success = sender.send_with_delay(
+                draft["to_email"], draft["subject"], draft["body"]
+            )
+
+            if success:
+                sent += 1
+                if draft.get("outreach_page_id"):
+                    try:
+                        notion.update_outreach_status(
+                            draft["outreach_page_id"], "sent"
+                        )
+                    except Exception:
+                        pass
+                logger.info("  Sent to %s <%s>", draft["to_name"], draft["to_email"])
+            else:
+                failed += 1
+                if draft.get("outreach_page_id"):
+                    try:
+                        notion.update_outreach_status(
+                            draft["outreach_page_id"], "bounced"
+                        )
+                    except Exception:
+                        pass
+                logger.warning(
+                    "  Failed to send to %s <%s>", draft["to_name"], draft["to_email"]
+                )
+
+        summary["emails_sent"] = sent
+        summary["emails_failed"] = failed
+
+    # ---- Build summary ----
+    summary["contacts"] = [
+        {
+            "name": c.get("name"),
+            "email": c.get("email"),
+            "role_title": c.get("role_title"),
+            "linkedin_url": c.get("linkedin_url"),
+            "confidence": c.get("email_confidence"),
+        }
+        for c in stored_contacts
+    ]
+
+    logger.info("=" * 60)
+    logger.info("PIPELINE COMPLETE for %s", company_name)
+    logger.info("  Contacts found on LinkedIn: %d", summary["contacts_found"])
+    logger.info("  Emails discovered: %d", summary["emails_found"])
+    logger.info("  Stored in Notion: %d", summary["emails_stored_notion"])
+    logger.info("  Email drafts created: %d", summary["drafts_created"])
+    if not dry_run:
+        logger.info("  Emails sent: %d", summary["emails_sent"])
+        logger.info("  Emails failed: %d", summary["emails_failed"])
+    logger.info("=" * 60)
+
     return summary

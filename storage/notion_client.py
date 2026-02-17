@@ -70,6 +70,7 @@ class NotionStorage:
                 "Name": {"title": {}},
                 "Email": {"email": {}},
                 "Role/Title": {"rich_text": {}},
+                "Company Name": {"rich_text": {}},
                 "Email Confidence": {"select": {"options": [
                     {"name": "high"}, {"name": "medium"}, {"name": "low"},
                 ]}},
@@ -264,12 +265,14 @@ class NotionStorage:
         """
         Insert a contact.
 
-        Expected keys: name, email, role_title, lead_page_id, email_confidence, linkedin_url
+        Expected keys: name, email, role_title, lead_page_id, email_confidence,
+                        linkedin_url, company_name
         """
         self.ensure_schemas()
 
         email_val = data.get("email", "") or None
         linkedin_val = data.get("linkedin_url", "") or None
+        company_name = data.get("company_name", "") or ""
 
         properties: dict = {
             "Name": {"title": [{"text": {"content": data.get("name", "")}}]},
@@ -277,6 +280,8 @@ class NotionStorage:
             "Email Confidence": {"select": {"name": data.get("email_confidence", "low")}},
         }
 
+        if company_name:
+            properties["Company Name"] = {"rich_text": [{"text": {"content": company_name}}]}
         if email_val:
             properties["Email"] = {"email": email_val}
         if linkedin_val:
@@ -286,7 +291,7 @@ class NotionStorage:
             parent={"database_id": self.contacts_db_id},
             properties=properties,
         )
-        logger.info("Created contact: %s (%s)", data.get("name"), page["id"])
+        logger.info("Created contact: %s at %s (%s)", data.get("name"), company_name, page["id"])
         return page["id"]
 
     def contact_exists(self, email: str) -> bool:
