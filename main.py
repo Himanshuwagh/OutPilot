@@ -5,10 +5,12 @@ Entry point for the AI Cold Outreach Pipeline.
 Usage:
     python main.py --run-now                          Run the full auto-scrape pipeline once
     python main.py --schedule                         Run as a daily scheduler (6 AM)
+    python main.py --contacts-only                    Scrape top posts -> leads -> contacts/emails in Notion
     python main.py --company "OpenAI"                 Target a specific company (find managers, email them)
     python main.py --company "Anthropic" --role "AI Engineer"
     python main.py --company "Scale AI" --domain "scale.com"
     python main.py --company "Mistral" --contacts 3
+    python main.py --linkedin-url "https://www.linkedin.com/in/USERNAME/" --domain "openai.com"
 """
 
 import argparse
@@ -24,6 +26,8 @@ load_dotenv(Path(__file__).parent / ".env")
 
 from agents.crew import run_pipeline
 from agents.tools import run_company_outreach
+from agents.tools import scrape_all_sources, process_and_store_leads, research_contacts
+from find_email_from_linkedin_profile import run_lookup
 from scheduler import start_scheduler
 
 logging.basicConfig(
@@ -52,6 +56,11 @@ def main():
         help="Start the scheduler (runs daily at configured time)",
     )
     parser.add_argument(
+        "--contacts-only",
+        action="store_true",
+        help="Scrape top posts, research contacts/emails, and store in Notion (no drafting/sending)",
+    )
+    parser.add_argument(
         "--company",
         type=str,
         default="",
@@ -75,12 +84,91 @@ def main():
         default=5,
         help="Number of contacts to find per company (used with --company, default: 5)",
     )
+    parser.add_argument(
+        "--top-posts",
+        type=int,
+        default=20,
+        help="Top posts to process in contacts-only mode (default: 20)",
+    )
+    parser.add_argument(
+        "--linkedin-url",
+        type=str,
+        default="",
+        help="Direct LinkedIn profile URL mode: resolve best email for this profile and save to Notion Contacts DB",
+    )
+    parser.add_argument(
+        "--headful",
+        action="store_true",
+        help="Use visible browser (helps if LinkedIn checkpoint/verification appears)",
+    )
 
     args = parser.parse_args()
 
-    if not args.run_now and not args.schedule and not args.company:
+    if (
+        not args.run_now
+        and not args.schedule
+        and not args.contacts_only
+        and not args.company
+        and not args.linkedin_url
+    ):
         parser.print_help()
         sys.exit(1)
+
+    # ---- Scrape -> lead -> contact/email (store in Notion only) ----
+    if args.contacts_only:
+        logger.info("Running contacts-only mode (no drafting/sending)...")
+        try:
+            posts = scrape_all_sources.run()
+            logger.info("Scraped %d raw posts", len(posts))
+            if args.top_posts > 0:
+                posts = posts[: args.top_posts]
+            logger.info("Processing top %d posts", len(posts))
+
+            leads = process_and_store_leads.run(posts)
+            logger.info("Stored %d new leads", len(leads))
+
+            if not leads:
+                logger.info("No new leads found.")
+                return
+
+            contacts = research_contacts.run(leads)
+            logger.info("Stored %d contacts in Notion", len(contacts))
+            if not contacts:
+                logger.warning("No contacts/emails found.")
+                sys.exit(1)
+        except Exception as exc:
+            logger.error("Contacts-only mode failed: %s", exc, exc_info=True)
+            sys.exit(1)
+        return
+
+    # ---- Direct LinkedIn profile email lookup (always saves to Notion) ----
+    if args.linkedin_url:
+        logger.info("Starting direct LinkedIn profile lookup for: %s", args.linkedin_url)
+        try:
+            result = asyncio.run(
+                run_lookup(
+                    linkedin_url=args.linkedin_url,
+                    company_override=args.company,
+                    domain_override=args.domain,
+                    headful=args.headful,
+                    save_notion=True,
+                )
+            )
+            logger.info(
+                "Resolved email: %s (%s confidence, method=%s)",
+                result.get("email", ""),
+                result.get("confidence", "low"),
+                result.get("method", ""),
+            )
+            if not result.get("email"):
+                logger.warning(
+                    "No email resolved for profile. Try passing --domain and --headful."
+                )
+                sys.exit(1)
+        except Exception as exc:
+            logger.error("LinkedIn profile lookup failed: %s", exc, exc_info=True)
+            sys.exit(1)
+        return
 
     # ---- Company-targeted outreach (sends emails) ----
     if args.company:

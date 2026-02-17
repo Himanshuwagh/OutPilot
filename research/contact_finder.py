@@ -45,6 +45,8 @@ MANAGER_FILTERS = [
 CARD_SELECTORS = [
     "li.reusable-search__result-container",
     "div.entity-result",
+    "ul.reusable-search__entity-result-list li",
+    "main li",
     "li.search-result",
     "div.search-result__wrapper",
     "li[class*='result']",
@@ -194,6 +196,46 @@ class ContactFinder(BaseScraper):
                     "(may be logged out or LinkedIn changed layout)",
                     page_num,
                 )
+                # Detect challenge/checkpoint pages explicitly.
+                try:
+                    body = (await self.page.inner_text("body")).lower()
+                    if any(k in body for k in ["checkpoint", "verify", "security verification", "unusual activity"]):
+                        logger.warning(
+                            "[linkedin-people] LinkedIn checkpoint/verification detected. "
+                            "Session may require manual verification in non-headless mode."
+                        )
+                except Exception:
+                    pass
+
+                # Fallback extraction: parse raw /in/ links directly from page.
+                fallback_people = await self._extract_people_from_links(company_name)
+                if fallback_people:
+                    logger.info(
+                        "[linkedin-people] Fallback link extraction found %d candidates on page %d",
+                        len(fallback_people),
+                        page_num,
+                    )
+                    for parsed in fallback_people:
+                        if len(contacts) >= self.contacts_per_company:
+                            break
+                        li_url = parsed.get("linkedin_url", "")
+                        if li_url and li_url in seen_urls:
+                            continue
+                        title = parsed.get("role_title", "")
+                        if strict_filter and not self._matches_role_filter(title, role_filter):
+                            continue
+                        if li_url:
+                            seen_urls.add(li_url)
+                        parsed["company_name"] = company_name
+                        contacts.append(parsed)
+                        logger.info(
+                            "[linkedin-people]   + %s | %s",
+                            parsed.get("name", ""),
+                            parsed.get("role_title", ""),
+                        )
+                    if len(contacts) >= self.contacts_per_company:
+                        break
+
                 # Capture the page for debugging
                 try:
                     page_text = await self.page.inner_text("body")
@@ -207,6 +249,7 @@ class ContactFinder(BaseScraper):
                 "[linkedin-people] Page %d: found %d cards", page_num, len(cards),
             )
 
+            parsed_on_page = 0
             for card in cards:
                 if len(contacts) >= self.contacts_per_company:
                     break
@@ -230,6 +273,7 @@ class ContactFinder(BaseScraper):
                         seen_urls.add(li_url)
                     parsed["company_name"] = company_name
                     contacts.append(parsed)
+                    parsed_on_page += 1
                     logger.info(
                         "[linkedin-people]   + %s | %s",
                         parsed["name"], parsed["role_title"],
@@ -237,6 +281,33 @@ class ContactFinder(BaseScraper):
 
                 except Exception as exc:
                     logger.debug("[linkedin-people] Parse error: %s", exc)
+
+            # If card parser couldn't extract anyone, fall back to raw /in/ links.
+            if parsed_on_page == 0 and len(contacts) < self.contacts_per_company:
+                fallback_people = await self._extract_people_from_links(company_name)
+                if fallback_people:
+                    logger.info(
+                        "[linkedin-people] Card parsing yielded 0; fallback extracted %d profiles",
+                        len(fallback_people),
+                    )
+                    for parsed in fallback_people:
+                        if len(contacts) >= self.contacts_per_company:
+                            break
+                        li_url = parsed.get("linkedin_url", "")
+                        if li_url and li_url in seen_urls:
+                            continue
+                        title = parsed.get("role_title", "")
+                        if strict_filter and not self._matches_role_filter(title, role_filter):
+                            continue
+                        if li_url:
+                            seen_urls.add(li_url)
+                        parsed["company_name"] = company_name
+                        contacts.append(parsed)
+                        logger.info(
+                            "[linkedin-people]   + %s | %s",
+                            parsed.get("name", ""),
+                            parsed.get("role_title", ""),
+                        )
 
             if len(contacts) >= self.contacts_per_company:
                 break
@@ -261,8 +332,91 @@ class ContactFinder(BaseScraper):
                 return cards
         return []
 
+    async def _extract_people_from_links(self, company_name: str) -> list[dict]:
+        """
+        Fallback parser when LinkedIn result-card selectors fail.
+        Extracts /in/ links and nearby text from the page.
+        """
+        script = """
+        (() => {
+          const anchors = Array.from(document.querySelectorAll('a[href*="/in/"]'));
+          const seen = new Set();
+          const rows = [];
+          for (const a of anchors) {
+            let href = a.getAttribute('href') || '';
+            if (!href.includes('/in/')) continue;
+            if (href.startsWith('/')) href = 'https://www.linkedin.com' + href;
+            href = href.split('?')[0];
+            if (seen.has(href)) continue;
+            seen.add(href);
+
+            const name = (a.textContent || '').trim();
+            const container = a.closest('li, div, article, section') || a.parentElement;
+            const text = ((container && container.textContent) || '').replace(/\\s+/g, ' ').trim();
+            rows.push({ href, name, text });
+          }
+          return rows.slice(0, 200);
+        })();
+        """
+        try:
+            rows = await self.page.evaluate(script)
+        except Exception:
+            return []
+
+        people: list[dict] = []
+        for row in rows or []:
+            href = (row.get("href") or "").strip()
+            if not href or "/in/" not in href:
+                continue
+
+            name = (row.get("name") or "").strip()
+            text = (row.get("text") or "").strip()
+            if not name:
+                # Infer name from profile slug.
+                slug = href.rstrip("/").split("/in/")[-1]
+                slug = slug.split("/")[0]
+                slug = re.sub(r"[-_]+", " ", slug)
+                slug = re.sub(r"\d+", "", slug).strip()
+                name = slug.title() if slug else ""
+            if not name:
+                continue
+
+            # Infer role as line after name in nearby text, else fallback to text snippet.
+            role_title = ""
+            if text:
+                # Remove duplicated name in text then keep short prefix.
+                cleaned = text.replace(name, "").strip(" -|")
+                role_title = cleaned[:120]
+
+            people.append(
+                {
+                    "name": name,
+                    "role_title": role_title,
+                    "linkedin_url": href,
+                    "company_name": company_name,
+                }
+            )
+
+        # Dedup by URL
+        dedup: dict[str, dict] = {}
+        for p in people:
+            dedup[p["linkedin_url"]] = p
+        return list(dedup.values())
+
     async def _parse_person_card(self, card) -> Optional[dict]:
         """Extract name, title, and profile URL from a search result card."""
+
+        # First extract URL so we can infer name from slug if needed.
+        linkedin_url = ""
+        for sel in LINK_SELECTORS:
+            el = await card.query_selector(sel)
+            if el:
+                href = await el.get_attribute("href") or ""
+                if "/in/" in href:
+                    if href.startswith("/"):
+                        href = f"https://www.linkedin.com{href}"
+                    linkedin_url = href.split("?")[0]
+                    break
 
         # ---- Name ----
         name = ""
@@ -274,6 +428,24 @@ class ContactFinder(BaseScraper):
                     break
                 name = ""
 
+        # Fallback: infer name from profile slug when visible name selector fails.
+        if not name and linkedin_url:
+            slug = linkedin_url.rstrip("/").split("/in/")[-1].split("/")[0]
+            slug = re.sub(r"[-_]+", " ", slug)
+            slug = re.sub(r"\d+", "", slug).strip()
+            if slug:
+                name = slug.title()
+
+        if not name:
+            # Last resort: first text line from the card.
+            try:
+                text = (await card.inner_text()).strip()
+                first_line = text.split("\n")[0].strip() if text else ""
+                if first_line and len(first_line) <= 80:
+                    name = first_line
+            except Exception:
+                pass
+
         if not name:
             return None
 
@@ -283,18 +455,6 @@ class ContactFinder(BaseScraper):
 
         if not name or name.lower() == "linkedin member":
             return None
-
-        # ---- LinkedIn URL ----
-        linkedin_url = ""
-        for sel in LINK_SELECTORS:
-            el = await card.query_selector(sel)
-            if el:
-                href = await el.get_attribute("href") or ""
-                if "/in/" in href:
-                    if href.startswith("/"):
-                        href = f"https://www.linkedin.com{href}"
-                    linkedin_url = href.split("?")[0]
-                    break
 
         # ---- Role/Title ----
         role_title = ""

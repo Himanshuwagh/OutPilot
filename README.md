@@ -45,6 +45,29 @@ python demo.py
 python main.py --run-now
 ```
 
+### Find email from a LinkedIn profile URL
+
+If LinkedIn People search is blocked/unstable for your account, use direct profile lookup:
+
+```bash
+python find_email_from_linkedin_profile.py --linkedin-url "https://www.linkedin.com/in/USERNAME/"
+```
+
+Recommended for best accuracy:
+
+```bash
+python find_email_from_linkedin_profile.py \
+  --linkedin-url "https://www.linkedin.com/in/USERNAME/" \
+  --company "OpenAI" \
+  --domain "openai.com"
+```
+
+If LinkedIn shows security verification, run with visible browser:
+
+```bash
+python find_email_from_linkedin_profile.py --linkedin-url "..." --headful
+```
+
 5. **Install as daily service (runs at 6 AM)**:
    ```bash
    bash install_service.sh
