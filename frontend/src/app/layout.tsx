@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-inter",
+const sans = Plus_Jakarta_Sans({
+  variable: "--font-sans",
   subsets: ["latin"],
   display: "swap",
 });
@@ -20,14 +20,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={sans.variable}>
       <body className="antialiased">
-        <div className="gradient-bg" aria-hidden="true">
-          <div className="accent-band" />
-          <div className="orb orb-1" />
-          <div className="orb orb-2" />
-          <div className="orb orb-3" />
-          <div className="orb orb-4" />
+        <div className="fixed inset-0 -z-10 h-full w-full bg-slate-950">
+          <div
+            className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-60 blur-[2px]"
+            style={{ backgroundImage: 'url(/background.jpg)' }}
+          />
+          {/* Heavy gradient overlay for maximum contrast */}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/50 to-slate-950" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.4)_100%)]" />
         </div>
         {children}
       </body>

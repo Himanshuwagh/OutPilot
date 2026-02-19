@@ -265,6 +265,11 @@ def main() -> None:
         "Scraped %d raw posts (x.com=%d, linkedin=%d, other=%d | funding=%d, job/hiring=%d, profile_resolved=%d)",
         len(posts), n_x, n_li, n_other, n_fund, n_job, n_enriched,
     )
+    if n_li == 0 and len(posts) > 0:
+        logger.warning(
+            "LinkedIn scraped 0 posts. Demo still uses X + news. "
+            "To scrape LinkedIn too, log in first: python setup_sessions.py --platform linkedin"
+        )
 
     if args.top_posts > 0:
         posts = posts[: args.top_posts]

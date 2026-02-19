@@ -97,7 +97,7 @@ const cardVariant = {
 
 export default function Features() {
   return (
-    <section id="features" className="section-glow bg-surface/80 backdrop-blur-sm py-24 md:py-32">
+    <section id="features" className="section-glow py-24 md:py-32">
       <div className="mx-auto max-w-[1000px] px-6">
         <div className="text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.15em] text-accent">
@@ -118,7 +118,7 @@ export default function Features() {
               whileInView="show"
               viewport={{ once: true, margin: "-40px" }}
               whileHover={{ y: -4, transition: { duration: 0.2 } }}
-              className="group relative bg-white p-6 transition-colors hover:bg-accent-light/50"
+              className="group relative rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur-sm transition-all hover:bg-white/10 hover:border-white/10 hover:-translate-y-1"
             >
               <motion.div
                 className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-surface text-subtle transition-colors group-hover:bg-accent/10 group-hover:text-accent"

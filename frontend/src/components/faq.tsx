@@ -24,7 +24,7 @@ export default function FAQ() {
           </h2>
         </div>
 
-        <div className="mt-14 overflow-hidden rounded-2xl border border-border bg-white">
+        <div className="mt-14 overflow-hidden rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md">
           {QA.map((item, i) => {
             const isOpen = openIdx === i;
             return (

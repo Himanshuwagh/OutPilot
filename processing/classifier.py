@@ -1,14 +1,82 @@
 """
 Rule-based post classifier: hiring / funding / both.
 Also filters out noise (ads, courses, staffing agencies).
+Uses Groq LLM (llama-3.3-70b-versatile) to drop news/commentary posts
+that only discuss hiring in general rather than an actual job or funding.
 """
 
 import logging
+import os
 import re
 
 import yaml
 
 logger = logging.getLogger(__name__)
+
+_groq_client = None
+_groq_model = None
+
+
+def _get_groq():
+    global _groq_client
+    if _groq_client is None and os.getenv("GROQ_API_KEY"):
+        try:
+            from groq import Groq
+            _groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        except Exception as e:
+            logger.debug("Groq client init failed: %s", e)
+    return _groq_client
+
+
+def _get_groq_model() -> str:
+    global _groq_model
+    if _groq_model is None:
+        try:
+            with open("config/settings.yaml") as f:
+                cfg = yaml.safe_load(f)
+            _groq_model = (cfg.get("outreach") or {}).get("groq_model", "llama-3.3-70b-versatile")
+        except Exception:
+            _groq_model = "llama-3.3-70b-versatile"
+    return _groq_model
+
+
+def _is_actual_job_or_funding_llm(text: str) -> bool:
+    """
+    Use Groq LLM to decide if the post is an actual job/funding announcement
+    (from or about a specific company) vs general news/commentary/opinion.
+    Returns True only for JOB_OR_FUNDING.
+    """
+    client = _get_groq()
+    if not client:
+        return True  # no API: keep post (rule-based only)
+    model = _get_groq_model()
+    system = (
+        "You are a strict filter for job and funding posts. "
+        "Your ONLY task is to decide if the given post is:\n"
+        "- JOB_OR_FUNDING: A real announcement (a specific company hiring for a role, or a specific company that raised funding). "
+        "The post should invite applications, link to a job, or announce a concrete funding round for a named company.\n"
+        "- NEWS_OR_COMMENTARY: General news, opinion, or commentary about hiring/funding/AI in the industry. "
+        "Examples: 'IBM plans to hire...' as news, 'LLMs are not AGI', 'companies are still hiring engineers', "
+        "'AI has not replaced anyone', opinion pieces, hot takes, or posts that only discuss hiring in general.\n"
+        "Reply with EXACTLY one of: JOB_OR_FUNDING or NEWS_OR_COMMENTARY. No other text."
+    )
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": (text or "")[:600]},
+            ],
+            temperature=0.0,
+            max_tokens=20,
+        )
+        raw = (resp.choices[0].message.content or "").strip().upper()
+        if "NEWS_OR_COMMENTARY" in raw or "NEWS" in raw:
+            return False
+        return True
+    except Exception as exc:
+        logger.debug("LLM relevance check failed: %s", exc)
+        return True  # on error, keep post
 
 
 class PostClassifier:
@@ -135,11 +203,18 @@ class PostClassifier:
         has_hiring = hiring_score >= 4
         has_funding = funding_score >= 4
 
+        # LLM relevance: drop news/commentary (e.g. "IBM plans to hire..." as general news)
         if has_hiring and has_funding:
+            if not _is_actual_job_or_funding_llm(text):
+                return None
             return "both"
         if has_hiring:
+            if not _is_actual_job_or_funding_llm(text):
+                return None
             return "hiring"
         if has_funding:
+            if not _is_actual_job_or_funding_llm(text):
+                return None
             return "funding"
         return None
 

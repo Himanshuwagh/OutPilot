@@ -18,6 +18,8 @@ from bs4 import BeautifulSoup
 
 import yaml
 
+from research.company_variants import get_company_name_variants
+
 logger = logging.getLogger(__name__)
 
 HEADERS = {
@@ -78,6 +80,25 @@ class DomainFinder:
             domain = self._dns_probe(company_name)
             if domain:
                 logger.info("Domain for '%s' via DNS probe: %s", company_name, domain)
+
+        # Strategy 5: Try name variants (e.g. "Tactful" when "Tactful AI" failed)
+        if not domain:
+            variants = get_company_name_variants(company_name)
+            for variant in variants[1:]:  # skip first (same as company_name)
+                vkey = variant.strip().lower()
+                if vkey in self._cache:
+                    domain = self._cache[vkey]
+                    break
+                domain = self._duckduckgo_search(variant) or self._google_search(variant)
+                if not domain:
+                    domain = self._dns_probe(variant)
+                if domain:
+                    logger.info(
+                        "Domain for '%s' via variant '%s': %s",
+                        company_name, variant, domain,
+                    )
+                    self._cache[vkey] = domain
+                    break
 
         if domain:
             self._cache[key] = domain

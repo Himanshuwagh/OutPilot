@@ -3,6 +3,9 @@ scraping:
   headless: true
   require_authenticated_sessions: true
   x:
+    # Last 24h only; 5 funding + 5 job/hiring = 10 total
+    max_funding_tweets: 5
+    max_hiring_tweets: 5
     max_tweets_per_session: 10
     scroll_delay_min: 2
     scroll_delay_max: 5
@@ -10,7 +13,10 @@ scraping:
     daily_action_quota: 200
     browser_data_dir: "./browser_data/x"
   linkedin:
-    max_posts_per_session: 20
+    # Last 24h only; 5 funding + 5 job/hiring = 10 total
+    max_funding_posts: 5
+    max_job_posts: 5
+    max_posts_per_session: 10
     scroll_delay_min: 3
     scroll_delay_max: 8
     max_scrolls: 10

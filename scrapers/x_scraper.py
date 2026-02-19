@@ -31,6 +31,8 @@ class XScraper(BaseScraper):
         browser_data_dir: str = "./browser_data/x",
         headless: bool = True,
         max_tweets: int = 50,
+        max_funding_tweets: int = 5,
+        max_hiring_tweets: int = 5,
         max_scrolls: int = 15,
         scroll_delay_min: float = 2.0,
         scroll_delay_max: float = 5.0,
@@ -38,6 +40,8 @@ class XScraper(BaseScraper):
     ):
         super().__init__(browser_data_dir, headless=headless, daily_quota=daily_quota)
         self.max_tweets = max_tweets
+        self.max_funding_tweets = max_funding_tweets
+        self.max_hiring_tweets = max_hiring_tweets
         self.max_scrolls = max_scrolls
         self.scroll_delay_min = scroll_delay_min
         self.scroll_delay_max = scroll_delay_max
@@ -63,64 +67,76 @@ class XScraper(BaseScraper):
         ]
 
     async def scrape(self) -> list[dict]:
-        """Scrape X.com for funding and hiring posts (last 24 h)."""
+        """Scrape X.com for funding and hiring posts (last 24h only). Up to 5 funding + 5 job/hiring."""
         await self.start()
         try:
             await self.ensure_logged_in("https://x.com/home", "home")
-            all_tweets: list[dict] = []
             seen_ids: set[str] = set()
+            funding_tweets: list[dict] = []
+            hiring_tweets: list[dict] = []
 
-            # ---- Flow 1: Funding posts ----
+            # ---- Flow 1: Funding posts (last 24h) ----
             for query in self._funding_queries():
-                if not self.check_quota() or len(all_tweets) >= self.max_tweets:
+                if not self.check_quota() or len(funding_tweets) >= self.max_funding_tweets:
                     break
-                tweets = await self._search(query, seen_ids)
+                tweets = await self._search(
+                    query, seen_ids, max_collect=self.max_funding_tweets - len(funding_tweets)
+                )
                 for t in tweets:
                     t["scrape_type"] = "funding"
-                all_tweets.extend(tweets)
-
-            # ---- Flow 2: Hiring posts ----
-            for query in self._hiring_queries():
-                if not self.check_quota() or len(all_tweets) >= self.max_tweets:
+                funding_tweets.extend(tweets)
+                if len(funding_tweets) >= self.max_funding_tweets:
                     break
-                tweets = await self._search(query, seen_ids)
+
+            # ---- Flow 2: Job / hiring posts (last 24h) ----
+            for query in self._hiring_queries():
+                if not self.check_quota() or len(hiring_tweets) >= self.max_hiring_tweets:
+                    break
+                tweets = await self._search(
+                    query, seen_ids, max_collect=self.max_hiring_tweets - len(hiring_tweets)
+                )
                 for t in tweets:
                     t["scrape_type"] = "hiring"
-                all_tweets.extend(tweets)
+                hiring_tweets.extend(tweets)
+                if len(hiring_tweets) >= self.max_hiring_tweets:
+                    break
 
-            trimmed = all_tweets[: self.max_tweets]
-            n_fund = sum(1 for t in trimmed if t.get("scrape_type") == "funding")
-            n_hire = sum(1 for t in trimmed if t.get("scrape_type") == "hiring")
+            result = funding_tweets[: self.max_funding_tweets] + hiring_tweets[: self.max_hiring_tweets]
+            n_fund = len(funding_tweets[: self.max_funding_tweets])
+            n_hire = len(hiring_tweets[: self.max_hiring_tweets])
             logger.info(
-                "[x.com] Total tweets collected: %d (funding=%d, hiring=%d)",
-                len(trimmed), n_fund, n_hire,
+                "[x.com] Total tweets collected: %d (funding=%d, hiring=%d, last 24h only)",
+                len(result), n_fund, n_hire,
             )
-            return trimmed
+            return result
         finally:
             await self.stop()
 
-    async def _search(self, query: str, seen_ids: set[str]) -> list[dict]:
-        """Execute one search query and return parsed tweets."""
+    async def _search(
+        self, query: str, seen_ids: set[str], max_collect: Optional[int] = None
+    ) -> list[dict]:
+        """Execute one search query and return parsed tweets (last 24h via query since:)."""
         encoded = quote(query)
         url = f"https://x.com/search?q={encoded}&src=typed_query&f=live"
-        logger.info("[x.com] Searching: %s", query[:80])
+        logger.info("[x.com] Searching (last 24h): %s", query[:80])
 
         await self.page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         await self.random_delay(3, 5)
         self.increment_quota()
 
         tweets: list[dict] = []
+        cap = max_collect if max_collect is not None else self.max_tweets
         last_height = 0
         stale_scrolls = 0
 
         for _ in range(self.max_scrolls):
-            if not self.check_quota():
+            if not self.check_quota() or len(tweets) >= cap:
                 break
 
             new_tweets = await self._extract_tweets(seen_ids)
             tweets.extend(new_tweets)
 
-            if len(tweets) >= self.max_tweets:
+            if len(tweets) >= cap:
                 break
 
             new_height = await self.scroll_to_bottom()

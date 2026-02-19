@@ -20,11 +20,10 @@ export default function Navbar() {
 
   return (
     <header
-      className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? "bg-white/80 shadow-sm shadow-teal-900/[0.04] backdrop-blur-xl"
-          : "bg-transparent"
-      }`}
+      className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 ${scrolled
+        ? "bg-slate-950/80 shadow-md shadow-black/10 backdrop-blur-md"
+        : "bg-transparent"
+        }`}
     >
       <div className="mx-auto flex h-[56px] max-w-[1000px] items-center justify-between px-6">
         <a href="#" className="flex items-center gap-2.5">
@@ -38,13 +37,13 @@ export default function Navbar() {
 
         <div className="hidden items-center gap-8 md:flex">
           {LINKS.map((l) => (
-            <a key={l.href} href={l.href} className="text-[13px] font-medium text-muted transition-colors hover:text-foreground">
+            <a key={l.href} href={l.href} className="text-[13px] font-medium text-slate-300 transition-colors hover:text-white">
               {l.label}
             </a>
           ))}
           <a
             href="#get-started"
-            className="rounded-full bg-foreground px-4 py-[7px] text-[13px] font-medium text-white transition-all hover:bg-foreground/90 hover:shadow-sm"
+            className="rounded-full bg-white px-4 py-[7px] text-[13px] font-bold text-slate-900 transition-all hover:bg-white/90 hover:shadow-sm hover:shadow-white/20"
           >
             Get Started
           </a>
@@ -73,13 +72,13 @@ export default function Navbar() {
       </div>
 
       {open && (
-        <div className="bg-white px-6 pb-5 pt-1 shadow-lg md:hidden">
+        <div className="border-t border-white/10 bg-slate-950/95 px-6 pb-5 pt-1 shadow-lg backdrop-blur-md md:hidden">
           {LINKS.map((l) => (
-            <a key={l.href} href={l.href} onClick={() => setOpen(false)} className="block py-3 text-sm text-muted">
+            <a key={l.href} href={l.href} onClick={() => setOpen(false)} className="block py-3 text-sm text-gray-300 hover:text-white">
               {l.label}
             </a>
           ))}
-          <a href="#get-started" onClick={() => setOpen(false)} className="mt-2 block rounded-full bg-foreground py-2.5 text-center text-sm font-medium text-white">
+          <a href="#get-started" onClick={() => setOpen(false)} className="mt-2 block rounded-full bg-white py-2.5 text-center text-sm font-medium text-slate-950">
             Get Started
           </a>
         </div>

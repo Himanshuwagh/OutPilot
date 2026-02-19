@@ -27,6 +27,7 @@ ROLE_FILTERS = [
     "head of talent", "head of recruiting", "head of people",
     "staffing", "sourcer", "sourcing",
     "engineering manager", "head of engineering",
+    "find talent",
 ]
 
 MANAGER_FILTERS = [
@@ -38,6 +39,7 @@ MANAGER_FILTERS = [
     "engineering manager", "head of engineering",
     "head of ai", "head of ml",
     "director of engineering", "director of ai", "director of ml",
+    "find talent",
 ]
 
 # Selectors to try (LinkedIn changes markup frequently)
@@ -146,6 +148,19 @@ class ContactFinder(BaseScraper):
                 contacts, seen_urls, strict_filter=True,
             )
             contacts = pass2
+
+        # ---- Pass 3: "find talent" keyword if still short ----
+        if len(contacts) < self.contacts_per_company:
+            logger.info(
+                "[linkedin-people] Pass 3: 'find talent' search for %s (have %d, need %d)",
+                company_name, len(contacts), self.contacts_per_company,
+            )
+            find_talent_query = f'"{company_name}" "find talent"'
+            pass3 = await self._search_and_collect(
+                find_talent_query, company_name, role_filter,
+                contacts, seen_urls, strict_filter=True,
+            )
+            contacts = pass3
 
         logger.info(
             "[linkedin-people] Found %d contacts at %s", len(contacts), company_name,

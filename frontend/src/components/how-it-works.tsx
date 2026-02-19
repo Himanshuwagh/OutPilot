@@ -109,7 +109,7 @@ export default function HowItWorks() {
                   borderColor: "rgba(20,184,166,0.25)",
                   transition: { duration: 0.25 },
                 }}
-                className="group relative rounded-2xl border border-border bg-white p-6"
+                className="group relative rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur-sm"
               >
                 <div className="flex items-center justify-between">
                   <motion.div

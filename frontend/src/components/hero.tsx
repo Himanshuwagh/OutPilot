@@ -24,11 +24,11 @@ export default function Hero() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent-light px-3.5 py-1 text-[13px] font-medium text-accent-hover"
+          className="inline-flex items-center gap-2 rounded-full border border-teal-500/30 bg-teal-950/50 backdrop-blur-md px-3.5 py-1 text-[13px] font-medium text-teal-200"
         >
           <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-teal-400 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-teal-400" />
           </span>
           Free &amp; fully local
         </motion.div>
@@ -50,7 +50,7 @@ export default function Hero() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
-          className="mx-auto mt-6 max-w-[460px] text-base leading-relaxed text-muted"
+          className="mx-auto mt-6 max-w-[460px] text-base leading-relaxed text-slate-200"
         >
           Outpilot scrapes jobs from LinkedIn, X &amp; tech news — finds
           contacts, discovers emails, and sends personalized outreach.
@@ -65,7 +65,7 @@ export default function Hero() {
         >
           <a
             href="#get-started"
-            className="group inline-flex items-center gap-2 rounded-full bg-foreground px-6 py-2.5 text-sm font-semibold text-white transition-all hover:bg-foreground/90 hover:shadow-lg hover:shadow-foreground/10"
+            className="group inline-flex items-center gap-2 rounded-full bg-white px-6 py-2.5 text-sm font-semibold text-slate-900 transition-all hover:bg-white/90 hover:shadow-lg hover:shadow-white/10"
           >
             Get Started
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-hover:translate-x-0.5">
@@ -74,7 +74,7 @@ export default function Hero() {
           </a>
           <a
             href="#how-it-works"
-            className="rounded-full border border-border px-6 py-2.5 text-sm font-semibold text-foreground transition-all hover:border-border/80 hover:bg-surface"
+            className="rounded-full border border-white/20 bg-white/5 backdrop-blur-sm px-6 py-2.5 text-sm font-semibold text-white transition-all hover:border-white/40 hover:bg-white/10"
           >
             How It Works
           </a>

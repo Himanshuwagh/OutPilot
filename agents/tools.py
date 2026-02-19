@@ -72,12 +72,14 @@ def scrape_all_sources(placeholder: str = "") -> list[dict]:
     xcfg = _settings["scraping"]["x"]
     licfg = _settings["scraping"]["linkedin"]
 
-    # X.com (funding + hiring flows)
+    # X.com (funding + hiring flows) — always run alongside LinkedIn for posts + web crawl
     try:
         x = XScraper(
             browser_data_dir=xcfg["browser_data_dir"],
             headless=_headless,
-            max_tweets=xcfg["max_tweets_per_session"],
+            max_tweets=xcfg.get("max_tweets_per_session", 10),
+            max_funding_tweets=xcfg.get("max_funding_tweets", 5),
+            max_hiring_tweets=xcfg.get("max_hiring_tweets", 5),
             max_scrolls=xcfg["max_scrolls"],
             scroll_delay_min=xcfg["scroll_delay_min"],
             scroll_delay_max=xcfg["scroll_delay_max"],
@@ -87,15 +89,19 @@ def scrape_all_sources(placeholder: str = "") -> list[dict]:
         asyncio.set_event_loop(loop)
         x_posts = loop.run_until_complete(x.scrape())
         all_posts.extend(x_posts)
+        logger.info("X.com scraped: %d posts", len(x_posts))
     except Exception as exc:
         logger.error("X.com scraper failed: %s", exc)
 
-    # LinkedIn (funding + job flows)
+    # LinkedIn (funding + job flows) — always run alongside X for posts + web crawl
+    logger.info("Starting LinkedIn scrape (funding + job, last 24h)...")
     try:
         li = LinkedInPostScraper(
             browser_data_dir=licfg["browser_data_dir"],
             headless=_headless,
-            max_posts=licfg["max_posts_per_session"],
+            max_posts=licfg.get("max_posts_per_session", 10),
+            max_funding_posts=licfg.get("max_funding_posts", 5),
+            max_job_posts=licfg.get("max_job_posts", 5),
             max_scrolls=licfg["max_scrolls"],
             scroll_delay_min=licfg["scroll_delay_min"],
             scroll_delay_max=licfg["scroll_delay_max"],
@@ -105,18 +111,30 @@ def scrape_all_sources(placeholder: str = "") -> list[dict]:
         asyncio.set_event_loop(loop)
         li_posts = loop.run_until_complete(li.scrape())
         all_posts.extend(li_posts)
+        logger.info("LinkedIn scraped: %d posts", len(li_posts))
+        if len(li_posts) == 0:
+            logger.warning(
+                "LinkedIn returned 0 posts. If you expect posts, ensure you are logged in: "
+                "run 'python setup_sessions.py --platform linkedin' (with a visible browser), "
+                "then re-run."
+            )
     except Exception as exc:
-        logger.error("LinkedIn scraper failed: %s", exc)
+        logger.error(
+            "LinkedIn scraper failed: %s. Run with debug or fix session: python setup_sessions.py --platform linkedin",
+            exc,
+            exc_info=True,
+        )
 
     # News
     try:
         news = NewsScraper()
         news_posts = news.scrape()
         all_posts.extend(news_posts)
+        logger.info("News scraped: %d posts", len(news_posts))
     except Exception as exc:
         logger.error("News scraper failed: %s", exc)
 
-    logger.info("Total raw posts scraped: %d", len(all_posts))
+    logger.info("Total raw posts scraped: %d (X + LinkedIn + news)", len(all_posts))
     return all_posts
 
 
@@ -196,11 +214,16 @@ def process_and_store_leads(posts: list[dict]) -> list[dict]:
             skipped["dedup_co"] += 1
             continue
 
-        # Store in Notion
+        # Store in Notion (ensure we always store a link when available)
         fp = make_fingerprint(post)
+        source_link = (
+            (post.get("source_url") or "").strip()
+            or (post.get("author_linkedin_url") or "").strip()
+            or (post.get("author_company_url") or "").strip()
+        )
         lead_data = {
             "company_name": company,
-            "source_link": post.get("source_url", ""),
+            "source_link": source_link,
             "post_type": post_type,
             "role": role,
             "funding_amount": post.get("funding_amount", ""),

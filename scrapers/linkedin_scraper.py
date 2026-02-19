@@ -49,6 +49,8 @@ class LinkedInPostScraper(BaseScraper):
         browser_data_dir: str = "./browser_data/linkedin",
         headless: bool = True,
         max_posts: int = 40,
+        max_funding_posts: int = 5,
+        max_job_posts: int = 5,
         max_scrolls: int = 10,
         scroll_delay_min: float = 3.0,
         scroll_delay_max: float = 8.0,
@@ -56,6 +58,8 @@ class LinkedInPostScraper(BaseScraper):
     ):
         super().__init__(browser_data_dir, headless=headless, daily_quota=daily_quota)
         self.max_posts = max_posts
+        self.max_funding_posts = max_funding_posts
+        self.max_job_posts = max_job_posts
         self.max_scrolls = max_scrolls
         self.scroll_delay_min = scroll_delay_min
         self.scroll_delay_max = scroll_delay_max
@@ -65,43 +69,62 @@ class LinkedInPostScraper(BaseScraper):
     # ------------------------------------------------------------------
 
     async def scrape(self) -> list[dict]:
-        """Scrape LinkedIn for funding posts and job posts (last 24 h)."""
+        """Scrape LinkedIn for funding and job posts (last 24h only). Up to 5 funding + 5 job/hiring."""
+        logger.info("[linkedin] Scrape started (browser session)")
         await self.start()
         try:
             await self.ensure_logged_in("https://www.linkedin.com/feed/", "feed")
-            all_posts: list[dict] = []
+            logger.info("[linkedin] Logged in, searching funding + job posts...")
             seen_fingerprints: set[str] = set()
+            funding_posts: list[dict] = []
+            job_posts: list[dict] = []
 
-            # ---- Flow 1: Funding posts (no contentType filter) ----
+            # ---- Flow 1: Funding posts (last 24h, no contentType filter) ----
             for query in self.FUNDING_QUERIES:
-                if not self.check_quota() or len(all_posts) >= self.max_posts:
+                if not self.check_quota() or len(funding_posts) >= self.max_funding_posts:
                     break
-                posts = await self._search_posts(query, seen_fingerprints, content_type="")
+                posts = await self._search_posts(
+                    query,
+                    seen_fingerprints,
+                    content_type="",
+                    max_collect=self.max_funding_posts - len(funding_posts),
+                )
                 for p in posts:
                     p["scrape_type"] = "funding"
-                all_posts.extend(posts)
-
-            # ---- Flow 2: Job posts (contentType=job) ----
-            for query in self.JOB_QUERIES:
-                if not self.check_quota() or len(all_posts) >= self.max_posts:
+                funding_posts.extend(posts)
+                if len(funding_posts) >= self.max_funding_posts:
                     break
-                posts = await self._search_posts(query, seen_fingerprints, content_type="job")
+
+            # ---- Flow 2: Job posts (last 24h, contentType=job) ----
+            for query in self.JOB_QUERIES:
+                if not self.check_quota() or len(job_posts) >= self.max_job_posts:
+                    break
+                posts = await self._search_posts(
+                    query,
+                    seen_fingerprints,
+                    content_type="job",
+                    max_collect=self.max_job_posts - len(job_posts),
+                )
                 for p in posts:
                     p["scrape_type"] = "job"
-                all_posts.extend(posts)
+                job_posts.extend(posts)
+                if len(job_posts) >= self.max_job_posts:
+                    break
 
-            trimmed = all_posts[: self.max_posts]
+            result = (
+                funding_posts[: self.max_funding_posts] + job_posts[: self.max_job_posts]
+            )
 
             # ---- Enrich job posts: visit poster profiles to find company ----
-            await self._enrich_job_posts(trimmed)
+            await self._enrich_job_posts(result)
 
-            n_fund = sum(1 for p in trimmed if p.get("scrape_type") == "funding")
-            n_job = sum(1 for p in trimmed if p.get("scrape_type") == "job")
+            n_fund = len(funding_posts[: self.max_funding_posts])
+            n_job = len(job_posts[: self.max_job_posts])
             logger.info(
-                "[linkedin] Total posts collected: %d (funding=%d, job=%d)",
-                len(trimmed), n_fund, n_job,
+                "[linkedin] Total posts collected: %d (funding=%d, job=%d, last 24h only)",
+                len(result), n_fund, n_job,
             )
-            return trimmed
+            return result
         finally:
             await self.stop()
 
@@ -110,9 +133,13 @@ class LinkedInPostScraper(BaseScraper):
     # ------------------------------------------------------------------
 
     async def _search_posts(
-        self, query: str, seen: set[str], content_type: str = ""
+        self,
+        query: str,
+        seen: set[str],
+        content_type: str = "",
+        max_collect: Optional[int] = None,
     ) -> list[dict]:
-        """Run one search query and collect post cards."""
+        """Run one search query and collect post cards (last 24h via datePosted=past-24h)."""
         encoded = quote(query)
         url = (
             f"https://www.linkedin.com/search/results/content/"
@@ -123,22 +150,26 @@ class LinkedInPostScraper(BaseScraper):
         if content_type:
             url += f"&contentType=%22{content_type}%22"
 
-        logger.info("[linkedin] Searching: %s", query)
+        logger.info("[linkedin] Searching (last 24h): %s", query)
 
         await self.page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         await self.random_delay(3, 6)
         self.increment_quota()
 
         posts: list[dict] = []
+        cap = max_collect if max_collect is not None else self.max_posts
         last_height = 0
         stale = 0
 
         for _ in range(self.max_scrolls):
-            if not self.check_quota() or len(posts) >= self.max_posts:
+            if not self.check_quota() or len(posts) >= cap:
                 break
 
             new_posts = await self._extract_posts(seen)
             posts.extend(new_posts)
+
+            if len(posts) >= cap:
+                break
 
             new_height = await self.scroll_to_bottom()
             self.increment_quota()
@@ -225,16 +256,23 @@ class LinkedInPostScraper(BaseScraper):
         )
         subtitle = (await subtitle_el.inner_text()).strip() if subtitle_el else ""
 
-        # Post permalink
-        link_el = await container.query_selector(
-            'a[href*="/posts/"], a[href*="/feed/update/"]'
-        )
+        # Post permalink (try multiple selectors; LinkedIn changes markup often)
         post_url = ""
-        if link_el:
-            href = await link_el.get_attribute("href") or ""
-            if href.startswith("/"):
-                href = f"https://www.linkedin.com{href}"
-            post_url = href.split("?")[0]
+        for sel in [
+            'a[href*="/posts/"]',
+            'a[href*="/feed/update/"]',
+            'a[href*="/feed/"]',
+            'a[href*="activity"]',
+            'a[href*="urn:li:activity"]',
+        ]:
+            link_el = await container.query_selector(sel)
+            if link_el:
+                href = await link_el.get_attribute("href") or ""
+                if href and ("/posts/" in href or "/feed/" in href or "activity" in href):
+                    if href.startswith("/"):
+                        href = f"https://www.linkedin.com{href}"
+                    post_url = href.split("?")[0]
+                    break
 
         # Author's LinkedIn profile or company URL
         author_linkedin_url = ""
@@ -256,6 +294,10 @@ class LinkedInPostScraper(BaseScraper):
                     author_company_url = href
                 break
 
+        # Ensure we have some link for the lead: post permalink > author profile > company
+        if not post_url:
+            post_url = author_linkedin_url or author_company_url or ""
+
         time_el = await container.query_selector(
             "time, span.update-components-actor__sub-description"
         )
@@ -269,7 +311,7 @@ class LinkedInPostScraper(BaseScraper):
 
         return {
             "text": text,
-            "source_url": post_url,
+            "source_url": post_url or author_linkedin_url or author_company_url,
             "author": author,
             "author_subtitle": subtitle,
             "author_linkedin_url": author_linkedin_url,

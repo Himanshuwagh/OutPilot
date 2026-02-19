@@ -1,18 +1,24 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: #ffffff;
-  --color-foreground: #0f172a;
-  --color-muted: #64748b;
+  --color-background: #020617;
+  /* Dark slate fallback */
+  --color-foreground: #ffffff;
+  --color-muted: #e2e8f0;
+  /* Much lighter gray for better readability */
   --color-subtle: #94a3b8;
-  --color-border: #e2e8f0;
-  --color-border-light: #f1f5f9;
-  --color-surface: #f8fafc;
-  --color-accent: #14b8a6;
-  --color-accent-hover: #0d9488;
-  --color-accent-light: #f0fdfa;
-  --color-accent-muted: #99f6e4;
-  --font-sans: var(--font-inter);
+  /* Lighter subtle text */
+  --color-border: rgba(255, 255, 255, 0.15);
+  /* Stronger border */
+  --color-border-light: rgba(255, 255, 255, 0.1);
+  --color-surface: rgba(0, 0, 0, 0.4);
+  /* Darker, more distinct surface */
+  --color-accent: #2dd4bf;
+  /* Brighter teal */
+  --color-accent-hover: #14b8a6;
+  --color-accent-light: rgba(45, 212, 191, 0.15);
+  --color-accent-muted: #ccfbf1;
+  --font-sans: var(--font-sans);
 }
 
 *,
@@ -42,144 +48,14 @@ body {
 }
 
 @keyframes scroll {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
 }
 
-/* ---- Sky-inspired background (serene, airy) ---- */
 
-@keyframes cloud-float-1 {
-  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.5; }
-  50%      { transform: translate(40px, -30px) scale(1.05); opacity: 0.65; }
-}
-
-@keyframes cloud-float-2 {
-  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.45; }
-  50%      { transform: translate(-35px, 25px) scale(0.98); opacity: 0.55; }
-}
-
-@keyframes cloud-float-3 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33%      { transform: translate(25px, 20px) scale(1.03); }
-  66%      { transform: translate(-20px, -15px) scale(0.97); }
-}
-
-@keyframes accent-pulse {
-  0%, 100% { opacity: 0.12; }
-  50%      { opacity: 0.18; }
-}
-
-@keyframes shimmer {
-  0%   { opacity: 0.35; }
-  50%  { opacity: 0.6; }
-  100% { opacity: 0.35; }
-}
-
-.gradient-bg {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-/* Base: soft sky gradient (light blue → seafoam → white) */
-.gradient-bg::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    165deg,
-    #e0f2fe 0%,
-    #ecfeff 22%,
-    #f0fdfa 45%,
-    #f8fafc 75%,
-    #ffffff 100%
-  );
-}
-
-/* Left accent band (muted teal frame, like reference) */
-.gradient-bg .accent-band {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 6px;
-  background: linear-gradient(180deg, rgba(20, 184, 166, 0.25), rgba(20, 184, 166, 0.08));
-  animation: accent-pulse 12s ease-in-out infinite;
-}
-
-/* Soft cloud-like orbs — gentle, slow motion */
-.gradient-bg .orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(100px);
-  will-change: transform;
-}
-
-.gradient-bg .orb-1 {
-  width: 720px;
-  height: 480px;
-  top: -8%;
-  left: -12%;
-  background: radial-gradient(ellipse 70% 50%, rgba(255, 255, 255, 0.7) 0%, rgba(224, 242, 254, 0.2) 50%, transparent 75%);
-  animation: cloud-float-1 32s ease-in-out infinite;
-}
-
-.gradient-bg .orb-2 {
-  width: 600px;
-  height: 400px;
-  top: 35%;
-  right: -8%;
-  background: radial-gradient(ellipse 60% 50%, rgba(255, 255, 255, 0.55) 0%, rgba(204, 251, 241, 0.15) 45%, transparent 75%);
-  animation: cloud-float-2 38s ease-in-out infinite;
-}
-
-.gradient-bg .orb-3 {
-  width: 560px;
-  height: 380px;
-  bottom: 5%;
-  left: 15%;
-  background: radial-gradient(ellipse 65% 50%, rgba(255, 255, 255, 0.5) 0%, rgba(236, 254, 255, 0.12) 50%, transparent 75%);
-  animation: cloud-float-3 35s ease-in-out infinite;
-}
-
-.gradient-bg .orb-4 {
-  width: 400px;
-  height: 320px;
-  top: 55%;
-  right: 18%;
-  background: radial-gradient(ellipse 55% 50%, rgba(20, 184, 166, 0.06) 0%, transparent 65%);
-  animation: cloud-float-2 40s ease-in-out infinite reverse;
-}
-
-/* Very subtle grain for depth (lighter than before) */
-.gradient-bg::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.02'/%3E%3C/svg%3E");
-  background-repeat: repeat;
-  background-size: 256px;
-  mix-blend-mode: overlay;
-  pointer-events: none;
-}
-
-/* Section glow — softer, matches sky feel */
-.section-glow {
-  position: relative;
-  overflow: hidden;
-}
-
-.section-glow::before {
-  content: "";
-  position: absolute;
-  top: -40%;
-  left: 50%;
-  width: 900px;
-  height: 360px;
-  transform: translateX(-50%);
-  background: radial-gradient(ellipse, rgba(20, 184, 166, 0.035) 0%, transparent 70%);
-  animation: shimmer 10s ease-in-out infinite;
-  pointer-events: none;
-}
+/* Clean up old animations */

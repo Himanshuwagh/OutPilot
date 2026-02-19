@@ -19,6 +19,7 @@ import yaml
 from bs4 import BeautifulSoup
 
 from research.accurate_email_finder import AccurateEmailFinder
+from research.company_variants import get_company_name_variants
 from research.domain_finder import DomainFinder
 from scrapers.base_scraper import BaseScraper
 from storage.notion_client import NotionStorage
@@ -119,17 +120,9 @@ def _extract_linkedin_company_url(text: str) -> str:
     return ""
 
 
-def discover_company_linkedin_url(company_name: str) -> str:
-    """
-    Find a LinkedIn company page URL for a company name.
-
-    Strategy:
-    1. DuckDuckGo HTML search (with redirect URL decoding)
-    2. Google search fallback
-    Returns empty string if both fail (browser fallback is tried in run_probe).
-    """
-    # Strategy 1: DuckDuckGo
-    q = f"site:linkedin.com/company {company_name}"
+def _discover_linkedin_url_for_name(search_name: str) -> str:
+    """Try DuckDuckGo then Google for one company name. Returns URL or \"\"."""
+    q = f"site:linkedin.com/company {search_name}"
     ddg_url = f"https://html.duckduckgo.com/html/?q={requests.utils.requote_uri(q)}"
     try:
         resp = requests.get(ddg_url, headers=HEADERS, timeout=10)
@@ -139,24 +132,14 @@ def discover_company_linkedin_url(company_name: str) -> str:
                 href = a.get("href", "")
                 found = _extract_linkedin_company_url(href)
                 if found:
-                    logger.info(
-                        "Discovered LinkedIn URL for '%s' via DuckDuckGo: %s",
-                        company_name, found,
-                    )
                     return found
-            # Also scan raw text of the page for encoded LinkedIn URLs.
             found = _extract_linkedin_company_url(resp.text)
             if found:
-                logger.info(
-                    "Discovered LinkedIn URL for '%s' via DuckDuckGo page text: %s",
-                    company_name, found,
-                )
                 return found
     except Exception as exc:
-        logger.debug("DuckDuckGo company search failed for '%s': %s", company_name, exc)
+        logger.debug("DuckDuckGo company search failed for '%s': %s", search_name, exc)
 
-    # Strategy 2: Google search
-    g_q = f'site:linkedin.com/company "{company_name}"'
+    g_q = f'site:linkedin.com/company "{search_name}"'
     google_url = f"https://www.google.com/search?q={requests.utils.requote_uri(g_q)}&num=5"
     try:
         resp = requests.get(google_url, headers=HEADERS, timeout=10)
@@ -166,18 +149,44 @@ def discover_company_linkedin_url(company_name: str) -> str:
                 href = a.get("href", "")
                 found = _extract_linkedin_company_url(href)
                 if found:
-                    logger.info(
-                        "Discovered LinkedIn URL for '%s' via Google: %s",
-                        company_name, found,
-                    )
                     return found
     except Exception as exc:
-        logger.debug("Google company search failed for '%s': %s", company_name, exc)
+        logger.debug("Google company search failed for '%s': %s", search_name, exc)
+
+    return ""
+
+
+def discover_company_linkedin_url(company_name: str) -> str:
+    """
+    Find a LinkedIn company page URL for a company name.
+
+    Tries the name and variants (e.g. "Tactful AI" -> also "Tactful") so we
+    match when X uses @Tactfulai but LinkedIn lists the company as "Tactful".
+    Strategy: for each variant, DuckDuckGo then Google; return first found.
+    """
+    variants = get_company_name_variants(company_name)
+    if not variants:
+        return ""
+
+    for search_name in variants:
+        found = _discover_linkedin_url_for_name(search_name)
+        if found:
+            if search_name != (variants[0] or "").strip():
+                logger.info(
+                    "Discovered LinkedIn URL for '%s' via variant '%s': %s",
+                    company_name, search_name, found,
+                )
+            else:
+                logger.info(
+                    "Discovered LinkedIn URL for '%s' via DuckDuckGo/Google: %s",
+                    company_name, found,
+                )
+            return found
 
     logger.warning(
-        "Could not discover LinkedIn company URL for '%s' via HTTP search "
-        "(browser fallback will be tried during run_probe)",
-        company_name,
+        "Could not discover LinkedIn company URL for '%s' (tried variants: %s). "
+        "Browser fallback will be tried during run_probe.",
+        company_name, variants,
     )
     return ""
 
@@ -192,6 +201,7 @@ PEOPLE_SEARCH_TERMS = [
     "engineering manager",
     "head of engineering",
     "head of talent",
+    "find talent",
 ]
 
 _RECRUITER_HEADLINE_MARKERS = [
@@ -202,6 +212,7 @@ _RECRUITER_HEADLINE_MARKERS = [
     "staffing", "sourcer", "sourcing",
     "engineering manager", "head of engineering",
     "director of engineering",
+    "find talent",
 ]
 
 
@@ -307,6 +318,40 @@ class LinkedInCompanyPeopleProbe(BaseScraper):
             )
 
         return collected[:limit]
+
+    async def get_any_people_links(self, company_url: str, limit: int = 3) -> list[str]:
+        """
+        Get up to `limit` profile links from the company People tab without
+        any keyword filter. Used when no recruiter/hiring/find-talent
+        profiles were found, so we store 2-3 arbitrary contacts.
+        """
+        base = company_url.rstrip("/")
+        search_url = f"{base}/people/"
+        logger.info("People fallback (any): %s (limit=%d)", search_url, limit)
+        try:
+            await self.page.goto(
+                search_url, wait_until="domcontentloaded", timeout=60_000
+            )
+            await self.random_delay(2, 4)
+        except Exception as exc:
+            logger.debug("Navigation failed for people fallback: %s", exc)
+            return []
+
+        try:
+            body_text = (await self.page.inner_text("body")).lower()
+            if any(
+                x in body_text
+                for x in ["checkpoint", "verify", "security verification"]
+            ):
+                logger.warning("LinkedIn checkpoint on people fallback; skipping.")
+                return []
+        except Exception:
+            pass
+
+        await self.scroll_to_bottom()
+        await self.random_delay(1, 3)
+        links = await self._extract_people_card_links()
+        return links[:limit]
 
     async def _extract_people_card_links(self) -> list[str]:
         """
@@ -480,17 +525,25 @@ async def run_probe(
         await probe.ensure_logged_in("https://www.linkedin.com/feed/", "feed")
 
         # If no company_url was supplied by the caller (HTTP search failed),
-        # try a browser-based LinkedIn company search using the hint name.
+        # try browser-based LinkedIn company search using hint and its variants.
         if not company_url and company_name_hint:
             logger.info(
-                "HTTP URL discovery failed for '%s'; trying browser-based company search.",
+                "HTTP URL discovery failed for '%s'; trying browser search with name variants.",
                 company_name_hint,
             )
-            company_url = await probe.find_company_url_via_browser(company_name_hint)
+            for search_name in get_company_name_variants(company_name_hint):
+                company_url = await probe.find_company_url_via_browser(search_name)
+                if company_url:
+                    if search_name != (company_name_hint or "").strip():
+                        logger.info(
+                            "Resolved company via variant '%s': %s",
+                            search_name, company_url,
+                        )
+                    break
             if not company_url:
                 raise RuntimeError(
                     f"Could not resolve LinkedIn company URL for '{company_name_hint}' "
-                    "via HTTP search or browser fallback."
+                    "via HTTP search or browser fallback (tried name variants)."
                 )
 
         company_name = await probe.get_company_name(company_url)
@@ -504,15 +557,26 @@ async def run_probe(
             raise RuntimeError("Could not resolve company domain. Pass --domain explicitly.")
 
         profile_links = await probe.get_people_links(company_url, limit=limit * 3)
+        require_recruiter_headline = True
         if not profile_links:
-            raise RuntimeError("No profile links found on company People tab.")
+            # No recruiter/hiring/find-talent found: get any 2-3 people and store emails
+            fallback_limit = min(3, max(1, limit))
+            profile_links = await probe.get_any_people_links(company_url, limit=fallback_limit)
+            if not profile_links:
+                raise RuntimeError("No profile links found on company People tab.")
+            require_recruiter_headline = False
+            logger.info(
+                "No recruiter/hiring/find-talent profiles; storing up to %d any-role contacts.",
+                fallback_limit,
+            )
 
         finder = AccurateEmailFinder()
         results: list[dict] = []
         seen = set()
+        max_results = limit if require_recruiter_headline else min(3, max(1, limit))
 
         for url in profile_links:
-            if len(results) >= limit:
+            if len(results) >= max_results:
                 break
             if url in seen:
                 continue
@@ -523,7 +587,7 @@ async def run_probe(
                 if not name:
                     continue
                 headline = profile.get("headline", "")
-                if headline and not _is_hiring_relevant_headline(headline):
+                if require_recruiter_headline and headline and not _is_hiring_relevant_headline(headline):
                     logger.debug(
                         "Skipping non-recruiter/hiring profile: %s (%s)", name, headline,
                     )

@@ -79,7 +79,7 @@ const configCard = {
 
 export default function GetStarted() {
   return (
-    <section id="get-started" className="section-glow bg-surface/80 backdrop-blur-sm py-24 md:py-32">
+    <section id="get-started" className="section-glow py-24 md:py-32">
       <div className="mx-auto max-w-[700px] px-6">
         <div className="text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.15em] text-accent">
@@ -102,7 +102,7 @@ export default function GetStarted() {
               whileInView="show"
               viewport={{ once: true }}
               whileHover={{ y: -4, transition: { duration: 0.2 } }}
-              className="rounded-xl border border-border bg-white p-5"
+              className="rounded-xl border border-white/5 bg-white/5 p-5 backdrop-blur-sm"
             >
               <h3 className="text-sm font-semibold text-foreground">{c.title}</h3>
               <ul className="mt-3 space-y-2.5">
