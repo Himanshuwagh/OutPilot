@@ -71,7 +71,7 @@ const lineGrow = {
 
 export default function HowItWorks() {
   return (
-    <section id="how-it-works" className="py-24 md:py-32">
+    <section id="how-it-works" className="section-glow py-24 md:py-32">
       <div className="mx-auto max-w-[1000px] px-6">
         <div className="text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.15em] text-accent">

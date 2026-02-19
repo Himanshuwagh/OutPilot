@@ -97,7 +97,7 @@ const cardVariant = {
 
 export default function Features() {
   return (
-    <section id="features" className="bg-surface py-24 md:py-32">
+    <section id="features" className="section-glow bg-surface/80 backdrop-blur-sm py-24 md:py-32">
       <div className="mx-auto max-w-[1000px] px-6">
         <div className="text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.15em] text-accent">

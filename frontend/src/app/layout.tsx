@@ -21,7 +21,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={inter.variable}>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <div className="gradient-bg" aria-hidden="true">
+          <div className="accent-band" />
+          <div className="orb orb-1" />
+          <div className="orb orb-2" />
+          <div className="orb orb-3" />
+          <div className="orb orb-4" />
+        </div>
+        {children}
+      </body>
     </html>
   );
 }

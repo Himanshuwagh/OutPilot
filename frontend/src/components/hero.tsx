@@ -1,16 +1,21 @@
 "use client";
 
 import { motion } from "framer-motion";
-import PipelineAnimation from "./pipeline-animation";
 import AnimatedCounter from "./animated-counter";
 
 export default function Hero() {
   return (
     <section className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden">
-      {/* Background */}
+      {/* Hero: one soft highlight so global sky stays the focus */}
       <div className="pointer-events-none absolute inset-0 -z-10">
-        <div className="absolute top-0 left-1/2 h-[600px] w-[900px] -translate-x-1/2 -translate-y-1/4 rounded-full bg-accent/[0.04] blur-3xl" />
-        <div className="absolute bottom-0 right-0 h-[300px] w-[400px] translate-x-1/4 rounded-full bg-accent/[0.03] blur-3xl" />
+        <motion.div
+          animate={{
+            opacity: [0.4, 0.6, 0.4],
+            scale: [1, 1.03, 1],
+          }}
+          transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute top-0 left-1/2 h-[420px] w-[800px] -translate-x-1/2 -translate-y-1/4 rounded-full bg-gradient-to-b from-white/30 via-teal-50/20 to-transparent blur-3xl"
+        />
       </div>
 
       <div className="mx-auto w-full max-w-[1000px] px-6 pt-14 text-center">
@@ -74,9 +79,6 @@ export default function Hero() {
             How It Works
           </a>
         </motion.div>
-
-        {/* Pipeline explainer animation */}
-        <PipelineAnimation />
 
         {/* Animated stats */}
         <motion.div

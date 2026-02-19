@@ -79,7 +79,7 @@ const configCard = {
 
 export default function GetStarted() {
   return (
-    <section id="get-started" className="bg-surface py-24 md:py-32">
+    <section id="get-started" className="section-glow bg-surface/80 backdrop-blur-sm py-24 md:py-32">
       <div className="mx-auto max-w-[700px] px-6">
         <div className="text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.15em] text-accent">
