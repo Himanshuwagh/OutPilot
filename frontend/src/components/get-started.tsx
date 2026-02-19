@@ -4,7 +4,7 @@ import { motion, useInView } from "framer-motion";
 import { useRef, useState, useEffect } from "react";
 
 const LINES = [
-  { prompt: true, text: "git clone <repo> && cd outpilot" },
+  { prompt: true, text: "git clone https://github.com/Himanshuwagh/OutPilot && cd OutPilot" },
   { prompt: true, text: "pip install -r requirements.txt" },
   { prompt: true, text: "cp .env.example .env" },
   { prompt: true, text: "python setup_sessions.py", comment: "# one-time login" },
