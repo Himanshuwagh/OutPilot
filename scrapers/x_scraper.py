@@ -1,6 +1,13 @@
 """
-X.com (Twitter) scraper for AI/ML hiring and funding posts.
-Uses Playwright with persistent login session. Last 24 hours only.
+X.com (Twitter) scraper — two flows:
+
+  1. **Funding posts**: AI/ML companies that recently raised funding.
+     Company is extracted from post text downstream, then the pipeline
+     searches LinkedIn for recruiters / hiring managers at that company.
+
+  2. **Hiring posts**: Posts about open AI/ML roles or active hiring.
+     Company is extracted from post text, then the same LinkedIn
+     recruiter search + email scrape pipeline runs.
 """
 
 import re
@@ -27,8 +34,9 @@ class XScraper(BaseScraper):
         max_scrolls: int = 15,
         scroll_delay_min: float = 2.0,
         scroll_delay_max: float = 5.0,
+        daily_quota: int = 200,
     ):
-        super().__init__(browser_data_dir, headless=headless, daily_quota=200)
+        super().__init__(browser_data_dir, headless=headless, daily_quota=daily_quota)
         self.max_tweets = max_tweets
         self.max_scrolls = max_scrolls
         self.scroll_delay_min = scroll_delay_min
@@ -38,33 +46,56 @@ class XScraper(BaseScraper):
             kw = yaml.safe_load(f)
         self.tech_keywords = kw.get("tech_keywords", [])
 
-    def _build_queries(self) -> list[str]:
-        """Build search queries with since: operator for last 24h."""
+    def _funding_queries(self) -> list[str]:
+        since = (datetime.utcnow() - timedelta(hours=24)).strftime("%Y-%m-%d")
+        return [
+            f'"raised" (AI OR "artificial intelligence" OR "machine learning") since:{since}',
+            f'("series A" OR "series B" OR "seed round" OR "funding") (AI OR ML OR "machine learning") since:{since}',
+            f'"funding" ("AI startup" OR "ML startup" OR "artificial intelligence") since:{since}',
+        ]
+
+    def _hiring_queries(self) -> list[str]:
         since = (datetime.utcnow() - timedelta(hours=24)).strftime("%Y-%m-%d")
         return [
             f'"hiring" (AI OR ML OR LLM OR "machine learning") since:{since}',
-            f'"raised" (AI OR "series" OR "funding" OR "seed") since:{since}',
             f'"looking for" (ML OR "machine learning" OR "data scientist" OR "AI engineer") since:{since}',
+            f'"open role" (AI OR ML OR "machine learning" OR LLM) since:{since}',
         ]
 
     async def scrape(self) -> list[dict]:
-        """Scrape X.com for hiring/funding posts in the last 24 hours."""
+        """Scrape X.com for funding and hiring posts (last 24 h)."""
         await self.start()
         try:
             await self.ensure_logged_in("https://x.com/home", "home")
             all_tweets: list[dict] = []
             seen_ids: set[str] = set()
 
-            for query in self._build_queries():
-                if not self.check_quota():
+            # ---- Flow 1: Funding posts ----
+            for query in self._funding_queries():
+                if not self.check_quota() or len(all_tweets) >= self.max_tweets:
                     break
                 tweets = await self._search(query, seen_ids)
+                for t in tweets:
+                    t["scrape_type"] = "funding"
                 all_tweets.extend(tweets)
-                if len(all_tweets) >= self.max_tweets:
-                    break
 
-            logger.info("[x.com] Total tweets collected: %d", len(all_tweets))
-            return all_tweets[: self.max_tweets]
+            # ---- Flow 2: Hiring posts ----
+            for query in self._hiring_queries():
+                if not self.check_quota() or len(all_tweets) >= self.max_tweets:
+                    break
+                tweets = await self._search(query, seen_ids)
+                for t in tweets:
+                    t["scrape_type"] = "hiring"
+                all_tweets.extend(tweets)
+
+            trimmed = all_tweets[: self.max_tweets]
+            n_fund = sum(1 for t in trimmed if t.get("scrape_type") == "funding")
+            n_hire = sum(1 for t in trimmed if t.get("scrape_type") == "hiring")
+            logger.info(
+                "[x.com] Total tweets collected: %d (funding=%d, hiring=%d)",
+                len(trimmed), n_fund, n_hire,
+            )
+            return trimmed
         finally:
             await self.stop()
 

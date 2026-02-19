@@ -21,24 +21,23 @@ from scrapers.base_scraper import BaseScraper
 logger = logging.getLogger(__name__)
 
 ROLE_FILTERS = [
-    "hr", "recruiter", "talent", "hiring manager",
+    "recruiter", "recruiting", "talent acquisition", "talent partner",
+    "hiring manager", "hr ", "hr manager", "human resources",
+    "people operations", "people partner",
+    "head of talent", "head of recruiting", "head of people",
+    "staffing", "sourcer", "sourcing",
     "engineering manager", "head of engineering",
-    "cto", "founder", "co-founder", "vp engineering",
-    "people operations", "talent acquisition",
 ]
 
-# Broader filter for manager-level searches
 MANAGER_FILTERS = [
-    "hiring manager", "engineering manager", "manager",
-    "head of engineering", "head of ai", "head of ml",
+    "recruiter", "recruiting", "talent acquisition", "talent partner",
+    "hiring manager", "hr ", "hr manager", "human resources",
+    "people operations", "people partner",
+    "head of talent", "head of recruiting", "head of people",
+    "staffing", "sourcer", "sourcing",
+    "engineering manager", "head of engineering",
+    "head of ai", "head of ml",
     "director of engineering", "director of ai", "director of ml",
-    "director", "vp engineering", "vp of engineering", "vp ai",
-    "cto", "founder", "co-founder",
-    "technical lead", "tech lead", "team lead",
-    "engineering lead", "ai lead", "ml lead",
-    "head of talent", "talent acquisition",
-    "recruiter", "hr manager", "people operations",
-    "senior", "principal", "staff",
 ]
 
 # Selectors to try (LinkedIn changes markup frequently)
@@ -115,11 +114,14 @@ class ContactFinder(BaseScraper):
         if search_mode == "managers":
             query = (
                 f'"{company_name}" "hiring manager" OR "engineering manager" '
-                f'OR "manager" OR "director" OR "head of" OR "lead"'
+                f'OR "recruiter" OR "talent acquisition" OR "director of engineering"'
             )
             role_filter = MANAGER_FILTERS
         else:
-            query = f'"{company_name}" recruiter OR HR OR "hiring manager" OR "engineering manager"'
+            query = (
+                f'"{company_name}" recruiter OR "talent acquisition" '
+                f'OR "hiring manager" OR "engineering manager" OR HR'
+            )
             role_filter = ROLE_FILTERS
 
         logger.info(
@@ -132,16 +134,16 @@ class ContactFinder(BaseScraper):
         )
         contacts = pass1
 
-        # ---- Pass 2: broad company search (no role filter) ----
+        # ---- Pass 2: broad company search (still filtered to relevant roles) ----
         if len(contacts) < self.contacts_per_company:
             logger.info(
                 "[linkedin-people] Pass 2: broad search for %s (have %d, need %d)",
                 company_name, len(contacts), self.contacts_per_company,
             )
-            broad_query = f'"{company_name}"'
+            broad_query = f'"{company_name}" recruiter OR "talent" OR "hiring" OR "HR"'
             pass2 = await self._search_and_collect(
                 broad_query, company_name, role_filter,
-                contacts, seen_urls, strict_filter=False,
+                contacts, seen_urls, strict_filter=True,
             )
             contacts = pass2
 

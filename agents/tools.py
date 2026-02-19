@@ -72,7 +72,7 @@ def scrape_all_sources(placeholder: str = "") -> list[dict]:
     xcfg = _settings["scraping"]["x"]
     licfg = _settings["scraping"]["linkedin"]
 
-    # X.com
+    # X.com (funding + hiring flows)
     try:
         x = XScraper(
             browser_data_dir=xcfg["browser_data_dir"],
@@ -81,26 +81,16 @@ def scrape_all_sources(placeholder: str = "") -> list[dict]:
             max_scrolls=xcfg["max_scrolls"],
             scroll_delay_min=xcfg["scroll_delay_min"],
             scroll_delay_max=xcfg["scroll_delay_max"],
+            daily_quota=xcfg["daily_action_quota"],
         )
-        x_posts = asyncio.get_event_loop().run_until_complete(x.scrape())
-        all_posts.extend(x_posts)
-    except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        x = XScraper(
-            browser_data_dir=xcfg["browser_data_dir"],
-            headless=_headless,
-            max_tweets=xcfg["max_tweets_per_session"],
-            max_scrolls=xcfg["max_scrolls"],
-            scroll_delay_min=xcfg["scroll_delay_min"],
-            scroll_delay_max=xcfg["scroll_delay_max"],
-        )
         x_posts = loop.run_until_complete(x.scrape())
         all_posts.extend(x_posts)
     except Exception as exc:
         logger.error("X.com scraper failed: %s", exc)
 
-    # LinkedIn
+    # LinkedIn (funding + job flows)
     try:
         li = LinkedInPostScraper(
             browser_data_dir=licfg["browser_data_dir"],
@@ -145,14 +135,22 @@ def process_and_store_leads(posts: list[dict]) -> list[dict]:
 
     stored_leads: list[dict] = []
 
+    skipped = {"dedup_fp": 0, "classify": 0, "company": 0, "years": 0,
+               "senior": 0, "us_only": 0, "location": 0, "dedup_co": 0}
+
     for post in posts:
+        text_preview = (post.get("text", "") or "")[:80]
+
         # Layer 1 dedup: fingerprint
         if dedup.is_duplicate_fingerprint(post):
+            skipped["dedup_fp"] += 1
             continue
 
         # Classify
         post_type = classifier.classify(post)
         if not post_type:
+            skipped["classify"] += 1
+            logger.debug("Filtered (classify): %s", text_preview)
             continue
         post["post_type"] = post_type
 
@@ -167,30 +165,35 @@ def process_and_store_leads(posts: list[dict]) -> list[dict]:
         # Layer 2 dedup: company within window
         company = post.get("company_name", "Unknown")
         if not company or company.strip().lower() in {"unknown", "n/a", "none"}:
-            # Drop items without identifiable company to keep results high quality.
+            skipped["company"] += 1
+            logger.debug("Filtered (no company): %s", text_preview)
             continue
 
-        # Do NOT require explicit "junior" role text.
-        # Keep posts even when role is missing, and only exclude when senior signals appear.
-        # (Senior filtering is handled below via years/senior markers.)
-
-        # Junior-focused filtering
-        if prefs.get("junior_only", True):
+        # Junior / location filters only apply to hiring posts, not funding
+        is_hiring_post = post_type in {"hiring", "both"}
+        if is_hiring_post and prefs.get("junior_only", True):
             max_years = int(prefs.get("max_years_experience", 3))
             if required_years is not None and required_years > max_years:
+                skipped["years"] += 1
+                logger.debug("Filtered (years=%d > %d): %s", required_years, max_years, text_preview)
                 continue
             if prefs.get("exclude_senior_titles", True) and is_senior_role:
+                skipped["senior"] += 1
+                logger.debug("Filtered (senior role=%s): %s", role, text_preview)
                 continue
 
-        # Location filtering preferences
-        if prefs.get("exclude_us_only_jobs", True) and is_us_only:
+        if is_hiring_post and prefs.get("exclude_us_only_jobs", True) and is_us_only:
+            skipped["us_only"] += 1
             continue
-        if not prefs.get("allow_non_us_roles", True) and location_scope == "non_us":
+        if is_hiring_post and not prefs.get("allow_non_us_roles", True) and location_scope == "non_us":
+            skipped["location"] += 1
             continue
-        if not prefs.get("allow_remote_roles", True) and location_scope == "remote":
+        if is_hiring_post and not prefs.get("allow_remote_roles", True) and location_scope == "remote":
+            skipped["location"] += 1
             continue
 
         if dedup.is_duplicate_company(company, post_type):
+            skipped["dedup_co"] += 1
             continue
 
         # Store in Notion
@@ -214,6 +217,12 @@ def process_and_store_leads(posts: list[dict]) -> list[dict]:
         except Exception as exc:
             logger.error("Failed to store lead for %s: %s", company, exc)
 
+    if any(skipped.values()):
+        logger.info(
+            "Filter summary: %s (of %d posts)",
+            ", ".join(f"{k}={v}" for k, v in skipped.items() if v),
+            len(posts),
+        )
     logger.info("Stored %d new leads in Notion", len(stored_leads))
     return stored_leads
 

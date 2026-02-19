@@ -79,6 +79,20 @@ class PostClassifier:
             "crypto giveaway",
             "airdrop",
         ]
+        # Patterns that indicate commentary ABOUT hiring, not actual hiring
+        self.opinion_patterns = [
+            r"^stop\s+hiring",
+            r"^why\s+(companies|startups|you)\s+(can't|don't|shouldn't|fail)",
+            r"\bthe truth about\s+(hiring|recruiting)\b",
+            r"\bi keep seeing\s+(job postings|companies|startups)\b",
+            r"\bthat person (either )?doesn'?t exist\b",
+            r"\bhere'?s what (actually|really) works\b",
+            r"\bcompetitive advantage isn'?t a hire\b",
+            r"\bwhat (no one|nobody) tells you about\b",
+            r"^(unpopular|hot|controversial)\s+(opinion|take)",
+            r"\bfree\b.{0,30}\bkit\b",
+            r"\bgiving away\b.{0,50}\b(founders|startups|companies)\b",
+        ]
 
     def classify(self, post: dict) -> str | None:
         """
@@ -106,6 +120,8 @@ class PostClassifier:
         if any(domain in source_url for domain in self.blocked_domains):
             return None
         if any(noise in text for noise in self.noise_markers):
+            return None
+        if any(re.search(pat, text) for pat in self.opinion_patterns):
             return None
 
         has_tech = any(kw in text for kw in self.tech_kw)

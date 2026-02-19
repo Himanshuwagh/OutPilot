@@ -10,6 +10,7 @@ Usage:
     python main.py --company "Anthropic" --role "AI Engineer"
     python main.py --company "Scale AI" --domain "scale.com"
     python main.py --company "Mistral" --contacts 3
+    python main.py --company-linkedin-url "https://www.linkedin.com/company/openai/" --contacts 5 --domain openai.com
     python main.py --linkedin-url "https://www.linkedin.com/in/USERNAME/" --domain "openai.com"
 """
 
@@ -26,9 +27,15 @@ load_dotenv(Path(__file__).parent / ".env")
 
 from agents.crew import run_pipeline
 from agents.tools import run_company_outreach
-from agents.tools import scrape_all_sources, process_and_store_leads, research_contacts
+from agents.tools import scrape_all_sources, process_and_store_leads
 from find_email_from_linkedin_profile import run_lookup
+from research.company_people_probe import (
+    run_probe,
+    discover_company_linkedin_url,
+    is_valid_company_name,
+)
 from scheduler import start_scheduler
+from storage.notion_client import NotionStorage
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,6 +72,12 @@ def main():
         type=str,
         default="",
         help="Target a specific company: search LinkedIn for managers, find emails, store in Notion, and send cold emails",
+    )
+    parser.add_argument(
+        "--company-linkedin-url",
+        type=str,
+        default="",
+        help="Use company-page flow: company LinkedIn URL -> People tab -> profile emails -> save to Notion Contacts",
     )
     parser.add_argument(
         "--role",
@@ -109,17 +122,68 @@ def main():
         and not args.schedule
         and not args.contacts_only
         and not args.company
+        and not args.company_linkedin_url
         and not args.linkedin_url
     ):
         parser.print_help()
         sys.exit(1)
 
+    # Clear all Notion tables before this run
+    try:
+        notion = NotionStorage()
+        notion.clear_all_tables()
+    except Exception as exc:
+        logger.warning("Could not clear Notion tables (skipping): %s", exc)
+
+    # ---- Company LinkedIn URL flow: People -> profiles -> emails -> Notion ----
+    if args.company_linkedin_url:
+        logger.info(
+            "Starting company-page flow for: %s",
+            args.company_linkedin_url,
+        )
+        try:
+            rows = asyncio.run(
+                run_probe(
+                    company_url=args.company_linkedin_url,
+                    limit=max(1, args.contacts),
+                    domain_override=args.domain,
+                    headful=args.headful,
+                    save_notion=True,
+                )
+            )
+            logger.info("Resolved %d profile emails via company-page flow", len(rows))
+            for i, r in enumerate(rows, start=1):
+                logger.info(
+                    "%d) %s | %s | %s (%s)",
+                    i,
+                    r.get("name", ""),
+                    r.get("email", ""),
+                    r.get("confidence", "low"),
+                    r.get("method", ""),
+                )
+            if not rows:
+                logger.warning(
+                    "No emails resolved from company page. Try --headful and pass --domain."
+                )
+                sys.exit(1)
+        except Exception as exc:
+            logger.error("Company-page flow failed: %s", exc, exc_info=True)
+            sys.exit(1)
+        return
+
     # ---- Scrape -> lead -> contact/email (store in Notion only) ----
     if args.contacts_only:
-        logger.info("Running contacts-only mode (no drafting/sending)...")
+        logger.info("=== CONTACTS-ONLY: scrape X.com + LinkedIn (funding + job/hiring) -> leads -> recruiter contacts ===")
         try:
             posts = scrape_all_sources.run()
-            logger.info("Scraped %d raw posts", len(posts))
+            n_x = sum(1 for p in posts if p.get("platform") == "x.com")
+            n_li = sum(1 for p in posts if p.get("platform") == "linkedin")
+            n_fund = sum(1 for p in posts if p.get("scrape_type") == "funding")
+            n_job = sum(1 for p in posts if p.get("scrape_type") in {"job", "hiring"})
+            logger.info(
+                "Scraped %d raw posts (x.com=%d, linkedin=%d | funding=%d, job/hiring=%d)",
+                len(posts), n_x, n_li, n_fund, n_job,
+            )
             if args.top_posts > 0:
                 posts = posts[: args.top_posts]
             logger.info("Processing top %d posts", len(posts))
@@ -131,10 +195,54 @@ def main():
                 logger.info("No new leads found.")
                 return
 
-            contacts = research_contacts.run(leads)
-            logger.info("Stored %d contacts in Notion", len(contacts))
-            if not contacts:
-                logger.warning("No contacts/emails found.")
+            companies = []
+            seen = set()
+            for lead in leads:
+                company = (lead.get("company_name") or "").strip()
+                if not company or company in seen:
+                    continue
+                seen.add(company)
+                companies.append(company)
+
+            logger.info("=== Finding recruiters/hiring managers at %d companies ===", len(companies))
+
+            total_contacts = 0
+            for company in companies:
+                if not is_valid_company_name(company):
+                    logger.info(
+                        "Skipping '%s' — looks like a person name or too short.", company
+                    )
+                    continue
+                company_url = discover_company_linkedin_url(company)
+                if not company_url:
+                    logger.info(
+                        "HTTP search found no URL for '%s'; will try browser fallback in run_probe.",
+                        company,
+                    )
+                else:
+                    logger.info("Company-page probe: %s -> %s", company, company_url)
+                try:
+                    rows = asyncio.run(
+                        run_probe(
+                            company_url=company_url,
+                            limit=max(1, args.contacts),
+                            domain_override="",
+                            headful=args.headful,
+                            save_notion=True,
+                            company_name_hint=company,
+                        )
+                    )
+                except Exception as exc:
+                    logger.warning("Probe failed for '%s': %s", company, exc)
+                    continue
+                total_contacts += len(rows)
+                logger.info("Resolved %d recruiter contacts for %s", len(rows), company)
+
+            logger.info("Total recruiter contacts saved to Notion: %d", total_contacts)
+            if total_contacts == 0:
+                logger.warning(
+                    "No recruiter contacts found from any company probe (Notion Contacts DB empty)."
+                )
                 sys.exit(1)
         except Exception as exc:
             logger.error("Contacts-only mode failed: %s", exc, exc_info=True)

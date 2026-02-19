@@ -43,8 +43,9 @@ class InfoExtractor:
         text = post.get("text", "")
         author = post.get("author_display_name", "") or post.get("author", "")
         source_url = post.get("source_url", "") or ""
+        author_company = post.get("author_company", "")
 
-        post["company_name"] = self._company(text, author, source_url)
+        post["company_name"] = self._company(text, author, source_url, author_company)
         post["role"] = self._role(text)
         post["funding_amount"] = self._funding_amount(text)
         post["tech_keywords"] = self._tech_keywords(text)
@@ -62,7 +63,7 @@ class InfoExtractor:
 
         # Eligibility signals
         post["required_years"] = self._required_years(text)
-        post["is_senior_role"] = self._is_senior_role(text)
+        post["is_senior_role"] = self._is_senior_role(text, post["role"])
         post["is_us_only"] = self._is_us_only(text)
         post["location_scope"] = self._location_scope(country=post["country"], remote=post["remote"])
 
@@ -72,7 +73,11 @@ class InfoExtractor:
     # Company name: multi-strategy
     # ------------------------------------------------------------------
 
-    def _company(self, text: str, author: str, source_url: str) -> str:
+    def _company(self, text: str, author: str, source_url: str, author_company: str = "") -> str:
+        # Strategy 0: Company resolved from poster's LinkedIn profile (strongest for job posts)
+        if author_company and len(author_company) > 1:
+            return author_company
+
         # Strategy 1: Regex patterns from post text
         name = self._company_from_regex(text)
         if name:
@@ -300,11 +305,12 @@ class InfoExtractor:
 
     def _required_years(self, text: str) -> Optional[int]:
         patterns = [
-            r"\b(\d+)\+?\s*(?:years|yrs)\b",
+            r"\b(\d+)\+?\s*(?:years|yrs)\s+(?:of\s+)?(?:experience|exp)\b",
             r"\bminimum\s+(\d+)\s*(?:years|yrs)\b",
             r"\bat\s+least\s+(\d+)\s*(?:years|yrs)\b",
-            r"\b(\d+)\s*-\s*(\d+)\s*(?:years|yrs)\b",
-            r"\b(\d+)\s+to\s+(\d+)\s*(?:years|yrs)\b",
+            r"\brequires?\s+(\d+)\+?\s*(?:years|yrs)\b",
+            r"\b(\d+)\s*-\s*(\d+)\s*(?:years|yrs)\s+(?:of\s+)?(?:experience|exp)\b",
+            r"\b(\d+)\s+to\s+(\d+)\s*(?:years|yrs)\s+(?:of\s+)?(?:experience|exp)\b",
         ]
         text_lower = text.lower()
         best: Optional[int] = None
@@ -317,15 +323,25 @@ class InfoExtractor:
                     best = val
         return best
 
-    def _is_senior_role(self, text: str) -> bool:
-        text_lower = text.lower()
-        senior_markers = [
+    def _is_senior_role(self, text: str, extracted_role: str = "") -> bool:
+        title_markers = [
             "senior", "sr ", "sr.", "staff ", "principal",
             "lead ", "manager", "director", "vp ", "vice president",
             "head of", "architect", "cto", "chief ",
-            "5+ years", "7+ years", "10+ years",
         ]
-        return any(marker in text_lower for marker in senior_markers)
+
+        if extracted_role:
+            role_lower = extracted_role.lower()
+            return any(m in role_lower for m in title_markers)
+
+        text_lower = text.lower()
+        senior_role_patterns = [
+            r"\b(?:senior|sr\.?|staff|principal)\s+(?:\w+\s+){0,2}(?:engineer|scientist|researcher|developer)\b",
+            r"\b(?:director|vp|head)\s+of\s+\w+",
+            r"\bcto\b",
+            r"\bchief\s+(?:technology|ai|data|science)\b",
+        ]
+        return any(re.search(pat, text_lower) for pat in senior_role_patterns)
 
     def _is_us_only(self, text: str) -> bool:
         text_lower = text.lower()

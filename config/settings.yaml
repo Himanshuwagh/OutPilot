@@ -3,17 +3,18 @@ scraping:
   headless: true
   require_authenticated_sessions: true
   x:
-    max_tweets_per_session: 50
+    max_tweets_per_session: 10
     scroll_delay_min: 2
     scroll_delay_max: 5
     max_scrolls: 15
+    daily_action_quota: 200
     browser_data_dir: "./browser_data/x"
   linkedin:
-    max_posts_per_session: 40
+    max_posts_per_session: 20
     scroll_delay_min: 3
     scroll_delay_max: 8
     max_scrolls: 10
-    daily_action_quota: 80
+    daily_action_quota: 200
     browser_data_dir: "./browser_data/linkedin"
   news:
     techcrunch_url: "https://techcrunch.com/category/artificial-intelligence/"
@@ -30,7 +31,7 @@ processing:
     allow_non_us_roles: true
 
 research:
-  contacts_per_company: 5
+  contacts_per_company: 3
   max_leads_for_contact_search: 20
   email_smtp_delay: 2
   # Accuracy-first finder controls.

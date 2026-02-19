@@ -61,17 +61,49 @@ tech_keywords:
   - "reinforcement learning"
 
 exclude_patterns:
+  # Spam / engagement bait
   - "giveaway"
+  - "giving away"
   - "contest"
   - "follow for"
   - "dm for details only"
   - "check dm"
+  - "like and repost"
+  - "repost to win"
+  # Courses / marketing
   - "course"
   - "bootcamp"
   - "tutorial"
   - "certificate"
   - "free webinar"
   - "sign up for our"
+  - "masterclass"
+  - "free workshop"
+  # Promotional / resource kits
+  - "megadrop"
+  - "hiring kit"
+  - "hiring playbook"
+  - "hiring guide"
+  - "hiring toolkit"
+  - "partner credits"
+  - "partner offers"
+  - "ready-to-use templates"
+  # Opinion / commentary (about hiring, not actual hiring)
+  - "stop hiring"
+  - "don't hire"
+  - "shouldn't hire"
+  - "the problem with hiring"
+  - "why companies fail at hiring"
+  - "here's what actually works"
+  - "hot take"
+  - "unpopular opinion"
+  - "controversial take"
+  - "i keep seeing job postings"
+  # Recruiting agency / staffing spam
+  - "staffing agency"
+  - "staffing solutions"
+  - "we place candidates"
+  - "outsource your hiring"
 
 location_keywords:
   united_states:
