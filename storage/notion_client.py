@@ -22,6 +22,7 @@ def _hash_fingerprint(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+
 def _normalize_notion_id(raw: Optional[str]) -> str:
     if not raw:
         return ""
